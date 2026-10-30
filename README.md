@@ -1,10 +1,39 @@
-# 3568_ubuntu
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="3568_ubuntu — RK3568 M-3568HA Ubuntu XFCE 桌面套件" width="100%">
+</p>
 
-为 **M-3568HA / SC-3568HA（RK3568）** 定制的 Ubuntu 22.04 + XFCE 桌面套件：
-mac 风格 Dock 与启动台、控制中心、统一浅色主题、MIPI 屏与触屏适配、开机 Logo 与自动登录。
+<p align="center">
+  <img src="https://img.shields.io/badge/%E6%9D%BF%E5%8D%A1-M--3568HA-1246FF?style=flat-square" alt="board">
+  <img src="https://img.shields.io/badge/SoC-RK3568-1246FF?style=flat-square" alt="soc">
+  <img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?style=flat-square" alt="ubuntu">
+  <img src="https://img.shields.io/badge/XFCE-4.16%20%2B%20picom-2b3b5c?style=flat-square" alt="xfce">
+  <img src="https://img.shields.io/badge/MIPI%20DSI-ILI9881C%20720%C3%971280-4C7BFF?style=flat-square" alt="panel">
+</p>
 
-本仓库只包含「桌面层」成果（脚本 / 配置 / 图标 / 壁纸 / 截图 / 面板与屏参），
-不含内核、u-boot、根文件系统镜像（`update.img` 约 3 GB，单独交付）。
+<h3 align="center">让一块 RK3568 工控板，开箱就是一台好看的桌面</h3>
+
+<p align="center">
+一条命令把「启动台 + 控制中心 + mac 风格 Dock + 统一浅色主题 + 触屏校准」铺到现有的 Ubuntu 22.04 上，<br>
+不改内核、不重装系统、不覆盖用户设置。
+</p>
+
+---
+
+## 这是什么
+
+M-3568HA / SC-3568HA（RK3568）出厂通常跑 Android 或裸 Ubuntu Base，桌面要么没有、要么是默认 XFCE 的灰蓝丑样子。
+本仓库是**这套板子上的桌面层成品**：脚本、GTK 样式、图标、壁纸、XFCE 面板配置、MIPI 屏参和触屏校准矩阵，全部按根路径镜像在 `overlay/` 里，
+用 `scripts/apply-overlay.sh` 一次铺到板子上。
+
+| 你会得到 | 说明 |
+|---|---|
+| 白色浅色桌面 | 统一 `#1246FF` 主色，所有聚焦/选中都是蓝底白字反色 |
+| mac 风格交互 | 底部 Dock（悬停放大、按下缩回、激活弹跳）、全屏/最大化自动新建虚拟桌面并滑动切换 |
+| 启动台 | 分类 + 搜索 + 7×4 分页网格，滚轮与触控都能翻页 |
+| 控制中心 | 亮度直控背光 PWM、RK809 声音输出通路切换，无需命令行 |
+| 屏幕 / 触屏可用 | ILI9881C 完整初始化序列 + 90° 旋转 + 边缘死区补偿 |
+
+> 仓库只含「桌面层」。内核、u-boot、根文件系统镜像不进 git（`update.img` 约 3 GB，单独交付）。
 
 ## 效果
 
@@ -14,17 +43,62 @@ mac 风格 Dock 与启动台、控制中心、统一浅色主题、MIPI 屏与�
 |---|---|
 | ![启动台](docs/pic/02-launchpad.png) | ![控制中心](docs/pic/03-control-center.png) |
 
-![顶栏](docs/pic/06-topbar.png)
+| 顶栏特写 | Dock 特写 |
+|---|---|
+| ![顶栏](docs/pic/06-topbar.png) | ![Dock](docs/pic/07-dock.png) |
 
-更多截图见 [`docs/pic/`](docs/pic/)，含日历、右键菜单、Dock 特写。
+完整清单（含日历、桌面右键菜单）见 [`docs/pic/`](docs/pic/)。
+
+## 快速开始
+
+板子上（默认账号 `eica`，有 sudo）：
+
+```bash
+git clone https://github.com/QZzwj/3568_ubuntu.git ~/3568_ubuntu
+cd ~/3568_ubuntu
+sudo ./scripts/apply-overlay.sh --dry-run   # 先看会改哪些文件
+sudo ./scripts/apply-overlay.sh             # 真正铺盘
+```
+
+脚本做三件事：按 `overlay/` 结构 rsync 到 `/`、修正属主、重启 `xfce4-panel` 与 `picom`。
+重新登录（或重启 lightdm）后即见新桌面。
+
+想回滚：`overlay/` 是纯文件镜像，把涉及的文件删掉/还原即可，脚本不写注册表式状态、不改内核。
+
+## 板上都有什么
+
+| 路径（= 板上绝对路径） | 说明 |
+|---|---|
+| `overlay/usr/local/bin/m3568ha-launchpad` | 启动台：分类、搜索、7×4 分页、滚轮/触控翻页 |
+| `overlay/usr/local/bin/m3568ha-quickpanel` | 控制中心：背光滑杆（直控 PWM）、RK809 输出通路切换 |
+| `overlay/usr/local/bin/m3568ha-theme` | 外观一键切换（dark / light / glass） |
+| `overlay/usr/local/bin/m3568ha-theme-ui` | 主题选择的图形界面 |
+| `overlay/usr/local/bin/m3568ha-ctl` | 受限 root 助手：只放行改背光与音频通路 |
+| `overlay/usr/local/bin/m3568ha-lock` | 锁屏 |
+| `overlay/usr/local/bin/splash-show` | 开机 Logo 显示 |
+| `overlay/usr/local/bin/lcd-rotate.sh` | 显示旋转 |
+| `overlay/usr/local/bin/fullscreen-workspace.py` | mac 风格虚拟桌面守护进程（X11 事件驱动，非轮询） |
+| `overlay/usr/local/bin/picom-start.sh` | 合成器启动（工作区滑动动画、阴影、淡入淡出） |
+| `overlay/usr/share/themes/m3568ha-light/` | 浅色 GTK3 主题（含 `gtk.gresource`） |
+| `overlay/usr/share/icons/hicolor/scalable/apps/` | 自绘 SVG 图标（启动台、控制中心、电源、音量、网络等） |
+| `overlay/usr/share/backgrounds/` | 壁纸与开机画面素材 |
+| `overlay/usr/share/applications/` | 桌面入口（`.desktop`） |
+| `overlay/etc/X11/xorg.conf.d/60-touchscreen-m3568ha.conf` | 触屏 90° 旋转 + 边缘死区补偿矩阵 |
+| `overlay/etc/sudoers.d/50-m3568ha-ctl` | 给 `eica` 放行 `m3568ha-ctl` |
+| `overlay/etc/lightdm/lightdm-gtk-greeter.conf.d/50-m3568ha.conf` | 登录界面与自动登录 |
+| `overlay/home/eica/.config/` | GTK 样式、picom 配置、XFCE 面板/主题/自启动 |
+| `kernel/lcd-dsi0-mipi-m3568ha.dtsi` | MIPI 屏 DTS（ILI9881C 完整 190 条初始化序列） |
+| `docs/pic/` | 板端实拍效果图与索引 |
+| `docs/touch-calib/` | 触屏边缘探测 / 五点校准工具与 1164 条实测样本 |
+| `scripts/apply-overlay.sh` | 一键部署 |
 
 ## 硬件与系统
 
 | 项目 | 值 |
 |---|---|
-| 板卡 | M-3568HA（RK3568，4×A55，Mali-G52） |
+| 板卡 | M-3568HA（RK3568，4×Cortex-A55，Mali-G52） |
 | 屏幕 | MIPI DSI0，ILI9881C，720×1280 竖屏，40pin FPC，4 lane，RGB888 |
-| 系统分辨率 | 1280×720（横屏使用，DTS 里做 90° 旋转） |
+| 系统分辨率 | 1280×720（横屏使用，DTS 内做 90° 旋转） |
 | 触摸 | Goodix GT1X，I2C1 @0x5d，RST=GPIO0_B6，INT=GPIO0_B5 |
 | 背光 | PWM4 → SY7200 EN，`/sys/class/backlight/backlight` |
 | 系统 | Ubuntu 22.04（Ubuntu Base + XFCE 4.16，X11 + picom） |
@@ -34,45 +108,15 @@ mac 风格 Dock 与启动台、控制中心、统一浅色主题、MIPI 屏与�
 
 | 用途 | 颜色 |
 |---|---|
-| 主色 / 聚焦 / 选中 | `#1246FF` |
-| 深色底/标题字 | `#2b3b5c` |
+| 主色 / 聚焦 / 选中 | `#1246FF`（统一蓝底白字反色） |
+| 标题 / 深色底 | `#2b3b5c` |
 | 正文 | `#16233d` |
-| 面板/卡片底 | `#FFFFFF`，阴影 `rgba(0,0,0,0.12)` |
+| 面板 / 卡片底色 | `#FFFFFF`，阴影 `rgba(0,0,0,0.12)` |
 
-所有聚焦态（分类 chip、搜索框、滑杆、日历今日、菜单悬停、任务栏按钮）统一为
-`#1246FF` 底 + 白字反色，规则集中在 `overlay/home/eica/.config/gtk-3.0/gtk.css`。
+规则集中在 `overlay/home/eica/.config/gtk-3.0/gtk.css`，分类 chip、搜索框、滑杆、日历今日、
+菜单悬停、任务栏按钮全部走同一套聚焦色。
 
-## 组成
-
-| 路径 | 说明 |
-|---|---|
-| `overlay/` | 板上实际部署的文件树，**按根路径镜像**，可直接 rsync 到 `/` |
-| `overlay/usr/local/bin/m3568ha-launchpad` | 启动台：分类、搜索、7×4 分页、滚轮/触控翻页 |
-| `overlay/usr/local/bin/m3568ha-quickpanel` | 控制中心：背光滑杆（PWM 直控）、RK809 输出通路切换 |
-| `overlay/usr/local/bin/m3568ha-theme` | 外观一键切换（dark / light / glass） |
-| `overlay/usr/local/bin/m3568ha-ctl` | 受限 root 助手（只允许改背光与音频通路） |
-| `overlay/usr/local/bin/fullscreen-workspace.py` | mac 风格虚拟桌面：全屏/最大化自动新建工作区并滑动切换 |
-| `overlay/usr/local/bin/m3568ha-lock`、`splash-show`、`lcd-rotate.sh` | 锁屏、开机 Logo、显示旋转 |
-| `overlay/etc/X11/xorg.conf.d/60-touchscreen-m3568ha.conf` | 触屏 90° 旋转 + 边缘死区补偿矩阵 |
-| `overlay/etc/sudoers.d/50-m3568ha-ctl` | 给 `eica` 放行 `m3568ha-ctl` |
-| `kernel/lcd-dsi0-mipi-m3568ha.dtsi` | MIPI 屏 DTS（ILI9881C 完整 190 条初始化序列） |
-| `docs/pic/` | 效果截图与索引 |
-| `docs/touch-calib/` | 触屏边缘探测/五点校准工具与实测样本 |
-| `scripts/apply-overlay.sh` | 一键把 `overlay/` 铺到当前系统并重启面板 |
-
-## 部署到板子
-
-```bash
-# 板子上（eica 有 sudo）
-git clone https://github.com/QZzwj/3568_ubuntu.git ~/3568_ubuntu
-cd ~/3568_ubuntu
-sudo ./scripts/apply-overlay.sh          # 铺文件 + 修属主
-sudo ./scripts/apply-overlay.sh --dry-run # 只看会改什么
-```
-
-脚本最后会重启 `xfce4-panel` 与 `picom`；重新登录后生效。
-
-## 屏幕（内核 DTS）
+## 屏幕：MIPI DTS
 
 在 `kernel/arch/arm64/boot/dts/rockchip/rk3568-m3568ha-linux.dts` 中引用：
 
@@ -80,19 +124,19 @@ sudo ./scripts/apply-overlay.sh --dry-run # 只看会改什么
 #include "lcd-dsi0-mipi-m3568ha.dtsi"
 ```
 
-要点（详见 dtsi 头部注释）：
+踩过的三个坑（详见 dtsi 头部注释，可省你几天时间）：
 
-- 必须发**完整**的 ILI9881C 初始化序列。只发 `SLPOUT + DISPON` 时面板寄存器停在
-  OTP 默认态，现象是「不规则黑边 + 内部杂色 / 白→黑渐变 / 闪烁」。
-- `lane-rate` 与 `clock-frequency` 需与面板匹配，改错会表现为整屏一亮一灭。
-- 电源域 `pmu_io_domains` 里 vccio3/vccio4/vccio5 等要按板子实际电压配置，否则
-  Wi-Fi / eMMC / 以太网会随机失效。
+| 现象 | 原因 |
+|---|---|
+| 不规则黑边 + 内部杂色 / 白→黑渐变 / 闪烁 | 只发了 `SLPOUT + DISPON`，面板寄存器停在 OTP 默认态，必须发完整的 ILI9881C 190 条序列 |
+| 整屏一亮一灭 | `lane-rate` 与 `clock-frequency` 与面板不匹配 |
+| Wi-Fi / eMMC / 以太网随机失效 | `pmu_io_domains` 的 vccio3 / vccio4 / vccio5 电压配错 |
 
 ## 触屏校准
 
-面板为竖屏、系统横屏，故 X 轴取面板 Y、Y 轴取面板 X 反相；实测可触达区
-`x∈[37,1269]`、`y∈[7,714]`（见 `docs/touch-calib/edge-samples.txt`），
-再用线性拉伸把死区补掉：
+面板竖屏、系统横屏，故 X 轴取面板 Y、Y 轴取面板 X 反相；实测可触达区
+`x∈[37,1269]`、`y∈[7,714]`（1280×720 面板，见 `docs/touch-calib/edge-samples.txt`），
+用线性拉伸把边缘死区补掉：
 
 ```
 0 1.044045 -0.031811
@@ -100,7 +144,7 @@ sudo ./scripts/apply-overlay.sh --dry-run # 只看会改什么
 0 0 1
 ```
 
-复现/重算：
+复现 / 重算：
 
 ```bash
 python3 docs/touch-calib/edge-probe.py     # 板上全屏滑动，采集极值
@@ -109,11 +153,12 @@ python3 docs/touch-calib/calib5.py         # 五点校准对照
 
 ## 已知限制
 
-- 桌面右键菜单仍是 xfdesktop 默认英文条目（未汉化）。
+- 桌面右键菜单仍是 xfdesktop 默认英文条目，尚未汉化。
 - 分辨率固定 1280×720，换屏需同时改 DTS 与 `xrandr` 模式。
-- `apply-overlay.sh` 假定用户名 `eica`、家目录 `/home/eica`。
+- `apply-overlay.sh` 假定用户名 `eica`、家目录 `/home/eica`；换用户名需同步改脚本与 sudoers。
+- 只适配 X11；Wayland 下 picom 动画与部分脚本不生效。
 
 ## 许可
 
-本仓库自写的脚本、配置、图标、壁纸：随项目自由使用。
-其余（Papirus 图标、XFCE 组件、ILI9881C 参数）：遵循各自上游许可。
+本仓库自写的脚本、配置、SVG 图标、壁纸：可自由使用与修改。
+其余（Papirus 图标、XFCE 组件、ILI9881C 初始化参数）遵循各自上游许可。
