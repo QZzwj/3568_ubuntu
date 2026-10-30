@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?style=flat-square" alt="ubuntu">
   <img src="https://img.shields.io/badge/XFCE-4.16%20%2B%20picom-2b3b5c?style=flat-square" alt="xfce">
   <img src="https://img.shields.io/badge/MIPI%20DSI-ILI9881C%20720%C3%971280-4C7BFF?style=flat-square" alt="panel">
+  <img src="https://img.shields.io/badge/license-MIT-2b3b5c?style=flat-square" alt="license">
 </p>
 
 <h3 align="center">让一块 RK3568 工控板，开箱就是一台好看的桌面</h3>
@@ -33,7 +34,8 @@ M-3568HA / SC-3568HA（RK3568）出厂通常跑 Android 或裸 Ubuntu Base，桌
 | 控制中心 | 亮度直控背光 PWM、RK809 声音输出通路切换，无需命令行 |
 | 屏幕 / 触屏可用 | ILI9881C 完整初始化序列 + 90° 旋转 + 边缘死区补偿 |
 
-> 仓库只含「桌面层」。内核、u-boot、根文件系统镜像不进 git（`update.img` 约 3 GB，单独交付）。
+> 仓库只含「桌面层」。内核、u-boot、根文件系统镜像不进 git（`update.img` 约 3 GB，单独交付），
+> 构建方法见 [构建 Ubuntu 镜像](#构建-ubuntu-镜像)。
 
 ## 效果
 
@@ -64,6 +66,81 @@ sudo ./scripts/apply-overlay.sh             # 真正铺盘
 重新登录（或重启 lightdm）后即见新桌面。
 
 想回滚：`overlay/` 是纯文件镜像，把涉及的文件删掉/还原即可，脚本不写注册表式状态、不改内核。
+
+## 构建 Ubuntu 镜像
+
+桌面层只是最后一层。系统镜像是 Rockchip Linux SDK（`rk3568_linux`，本仓库不含）用 `build.sh` 拼出来的：
+
+```bash
+cd rk3568_linux
+./build.sh lunch                        # 选 6 → BoardConfig-rk3568-m3568ha.mk
+./build.sh info                         # 核对 RK_KERNEL_DTS=rk3568-m3568ha-linux / RK_ROOTFS_SYSTEM=ubuntu
+
+sudo apt install qemu-user-static binfmt-support rsync   # 宿主机一次性准备（chroot 装包要靠 qemu 转 arm64）
+```
+
+### 打 rootfs（Ubuntu 22.04 + XFCE）
+
+这几个变量必须 `export`，`build.sh ubuntu` 会把环境带进 `ubuntu/mk-rootfs-ubuntu.sh` 的 chroot：
+
+```bash
+export RK_ROOTFS_SYSTEM=ubuntu
+export USER_NAME=eica USER_PASSWORD=eica ROOT_PASSWORD=123456 TARGET_HOSTNAME=rk3568
+export DESKTOP=y                        # 装 xubuntu-desktop，外观随后由本仓库 overlay 覆盖
+export EXTRA_PKGS="picom wmctrl python3-xlib xfce4-docklike-plugin xfce4-terminal fonts-noto-cjk"
+
+./build.sh ubuntu                       # → ubuntu/ubuntu-rootfs.img
+```
+
+### 出 update.img
+
+```bash
+./build.sh kernel                       # 改过 DTS / 驱动才需要，纯桌面改动可跳过
+./build.sh firmware                     # 收拢 boot.img / rootfs.ext4 / parameter.txt 到 rockdev/
+./build.sh updateimg                    # → rockdev/update.img
+```
+
+烧写（板子进 loader / maskrom）：
+
+```bash
+sudo tools/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool/upgrade_tool uf rockdev/update.img
+```
+
+### 产物
+
+| 文件 | 内容 |
+|---|---|
+| `ubuntu/ubuntu-rootfs.img` | 可烧写的 ext4 根文件系统（`mkfs.ext4 -d binary/`） |
+| `rockdev/rootfs.ext4` | 同上，`mkfirmware.sh` 建软链后的名字 |
+| `rockdev/boot.img` | FIT 打包的内核 + DTB |
+| `rockdev/parameter.txt` | `parameter-m3568ha.txt` 分区表（rootfs 10 GB，其余给 userdata） |
+| `rockdev/update.img` | 全量升级包 |
+
+### rootfs 定制变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `RK_UBUNTU_VERSION` / `UBUNTU_RELEASE` | `jammy` | `focal`=20.04、`jammy`=22.04、`noble`=24.04 |
+| `UBUNTU_MIRROR` | tuna `ubuntu-ports` | chroot 内 apt 源 |
+| `USER_NAME` / `USER_PASSWORD` | `linaro` | 本板设为 `eica` / `eica` |
+| `ROOT_PASSWORD` | `123456` | |
+| `DESKTOP` | `n` | `y` 装 `xubuntu-desktop` |
+| `RK_WIFIBT`（板级配置） | `y` | 装 rkwifibt 固件 + `rk_wifi_init`，NVRAM 固件集由 `RK_WIFIBT_FW_DIR` 钉死 |
+| `EXTRA_SIZE_MB` | `500` | ext4 预留空间 |
+
+### 桌面层进镜像的两种方式
+
+| 时机 | 做法 |
+|---|---|
+| 系统已烧好 | 板上跑 `sudo ./scripts/apply-overlay.sh`（最快，改完重启面板即生效） |
+| 想让镜像出厂即带桌面 | `sudo cp -a overlay/. rk3568_linux/ubuntu/overlay/`，再 `./build.sh ubuntu && ./build.sh firmware && ./build.sh updateimg` |
+
+### 注意
+
+- 本板 `RK_CFG_RECOVERY=` 为空（不打包 buildroot recovery），所以 `RK_MISC` 必须保持 `blank-misc.img`；
+  换成 `wipe_all` 会写 BCB，开机直接掉进 U-Boot 命令行。
+- 屏参改 `kernel/lcd-dsi0-mipi-m3568ha.dtsi`，由 `rk3568-m3568ha-linux.dts` 里的 `#include` 引入。
+- 全量 rootfs 要在 chroot 里 `apt install`，耗时取决于网络；只改桌面外观请走 `apply-overlay.sh`，不必重打镜像。
 
 ## 板上都有什么
 
@@ -160,5 +237,12 @@ python3 docs/touch-calib/calib5.py         # 五点校准对照
 
 ## 许可
 
-本仓库自写的脚本、配置、SVG 图标、壁纸：可自由使用与修改。
-其余（Papirus 图标、XFCE 组件、ILI9881C 初始化参数）遵循各自上游许可。
+本仓库原创部分（脚本、GTK 样式、SVG 图标、壁纸、面板配置、触屏校准矩阵、该 DTS 片段）以 **MIT** 协议发布，
+见 [LICENSE](LICENSE)。
+
+随仓库或随系统附带的上游组件保留各自许可：
+
+| 组件 | 许可 |
+|---|---|
+| Papirus 图标、XFCE 4.16 组件、lightdm | GPL / LGPL（各自上游） |
+| ILI9881C 初始化参数（取自面板厂商公开资料） | 沿用原厂资料条款 |
