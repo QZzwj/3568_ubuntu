@@ -167,8 +167,15 @@ sudo tools/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool/upgrade_tool uf rockdev/u
 | `rockdev/parameter.txt` | `parameter-m3568ha.txt` 分区表（rootfs 10 GB，其余给 userdata） |
 | `rockdev/update.img` | 全量升级包 |
 
-现成的 `update.img` 不进 git（3.1 GB），随 Release 发布：见 [Releases](https://github.com/QZzwj/3568_ubuntu/releases)。
-校验：`sha256sum -c update.img.sha256`。
+现成的 `update.img` 不进 git（3.05 GiB），随 [Releases](https://github.com/QZzwj/3568_ubuntu/releases) 发布。
+GitHub 单个 asset 上限 2 GiB，所以分两卷，合并后可用：
+
+```bash
+cat update.img0.part update.img1.part > update.img
+sha256sum update.img     # 011c43c54eeadbb659372a968e9ef586597e75da5faa6af4eb83be46f76b20a7
+```
+
+详见 [`docs/release-notes-v1.0.md`](docs/release-notes-v1.0.md)。
 
 ### rootfs 定制变量
 
