@@ -1,0 +1,502 @@
+diff --git a/device/rockchip/common/build.sh b/device/rockchip/common/build.sh
+index b6e350924..f55a0f38a 100755
+--- a/device/rockchip/common/build.sh
++++ b/device/rockchip/common/build.sh
+@@ -207,6 +207,8 @@ function usagerootfs()
+ 			;;
+ 		debian)
+ 			;;
++		ubuntu)
++			;;
+ 		*)
+ 			echo "make"
+ 			;;
+@@ -296,6 +298,7 @@ function usage()
+ 	echo "multi-npu_boot     -build boot image for multi-npu board"
+ 	echo "yocto              -build yocto rootfs"
+ 	echo "debian             -build debian rootfs"
++	echo "ubuntu             -build ubuntu rootfs (RK_UBUNTU_VERSION=jammy)"
+ 	echo "pcba               -build pcba"
+ 	echo "recovery           -build recovery"
+ 	echo "all                -build uboot, kernel, rootfs, recovery image"
+@@ -801,6 +804,36 @@ function build_debian(){
+ 	finish_build
+ }
+ 
++function build_ubuntu(){
++	ARCH=${RK_UBUNTU_ARCH:-arm64}
++	# UBUNTU_RELEASE can override the board config (RK_UBUNTU_VERSION)
++	RELEASE=${UBUNTU_RELEASE:-${RK_UBUNTU_VERSION:-jammy}}
++
++	echo "=========Start building ubuntu($RELEASE) for $ARCH========="
++
++	if [ ! -x "$TOP_DIR/ubuntu/mk-rootfs-ubuntu.sh" ]; then
++		echo "ERROR: ubuntu/mk-rootfs-ubuntu.sh not found"
++		exit 1
++	fi
++
++	# run in a subshell: the caller (build_rootfs) needs to stay in $TOP_DIR
++	(
++		cd "$TOP_DIR/ubuntu" || exit 1
++		RELEASE=$RELEASE ARCH=$ARCH ./mk-base-ubuntu.sh || {
++			echo "ERROR: failed to fetch ubuntu-base-$RELEASE, check your network / UBUNTU_BASE_MIRROR"
++			exit 1
++		}
++		RELEASE=$RELEASE ARCH=$ARCH WIFIBT=${RK_WIFIBT:-n} \
++			RK_WIFIBT_NVRAM=${RK_WIFIBT_NVRAM:-nvram_ap6275s.txt} \
++			./mk-rootfs-ubuntu.sh
++	) || {
++		echo "ERROR: failed to build ubuntu rootfs"
++		exit 1
++	}
++
++	finish_build
++}
++
+ function build_rootfs(){
+ 	check_config RK_ROOTFS_IMG || return 0
+ 
+@@ -821,6 +854,11 @@ function build_rootfs(){
+ 			ln -rsf debian/linaro-rootfs.img \
+ 				$RK_ROOTFS_DIR/rootfs.ext4
+ 			;;
++		ubuntu)
++			build_ubuntu
++			ln -rsf ubuntu/ubuntu-rootfs.img \
++				$RK_ROOTFS_DIR/rootfs.ext4
++			;;
+ 		*)
+ 			build_buildroot
+ 			for f in $(ls buildroot/output/$RK_CFG_BUILDROOT/images/rootfs.*);do
+@@ -1045,6 +1083,7 @@ function build_cleanall(){
+ 	rm -rf buildroot/output
+ 	rm -rf yocto/build/tmp
+ 	rm -rf debian/binary
++	rm -rf ubuntu/binary ubuntu/ubuntu-rootfs.img ubuntu/.chroot-setup.sh
+ 
+ 	finish_build
+ }
+@@ -1059,6 +1098,13 @@ function build_updateimg(){
+ 	IMAGE_PATH=$TOP_DIR/rockdev
+ 	PACK_TOOL_DIR=$TOP_DIR/tools/linux/Linux_Pack_Firmware
+ 
++	# Some SDK snapshots only ship the per-chip scripts (<chip>-mkupdate.sh),
++	# the generic ./mkupdate.sh is a (git-ignored) symlink -> create it on the fly
++	if [ ! -e "$PACK_TOOL_DIR/rockdev/mkupdate.sh" ] && \
++			[ -e "$PACK_TOOL_DIR/rockdev/$RK_TARGET_PRODUCT-mkupdate.sh" ]; then
++		ln -sf "$RK_TARGET_PRODUCT-mkupdate.sh" "$PACK_TOOL_DIR/rockdev/mkupdate.sh"
++	fi
++
+ 	cd $PACK_TOOL_DIR/rockdev
+ 
+ 	if [ -f "$RK_PACKAGE_FILE_AB" ]; then
+@@ -1276,7 +1322,7 @@ for option in ${OPTIONS}; do
+ 		loader) build_loader ;;
+ 		kernel) build_kernel ;;
+ 		modules) build_modules ;;
+-		rootfs|buildroot|debian|yocto) build_rootfs $option ;;
++		rootfs|buildroot|debian|ubuntu|yocto) build_rootfs $option ;;
+ 		pcba) build_pcba ;;
+ 		ramboot) build_ramboot ;;
+ 		recovery) build_recovery ;;
+diff --git a/device/rockchip/common/mkfirmware.sh b/device/rockchip/common/mkfirmware.sh
+index 9cde46649..fa4371cb7 100755
+--- a/device/rockchip/common/mkfirmware.sh
++++ b/device/rockchip/common/mkfirmware.sh
+@@ -84,6 +84,7 @@ assert_size() {
+     [ "$PART_SIZE" -gt 0 ] || return 0
+ 
+     IMG_SIZE=$(stat -c "%s" "$IMG")
++    [ -n "$IMG_SIZE" ] || fatal "error: cannot stat $IMG"
+ 
+     if [ $PART_SIZE -lt $(( "$IMG_SIZE" / 1024 )) ]; then
+         fatal "error: $IMG's size exceed parameter.txt's limit!"
+@@ -102,7 +103,7 @@ link_image() {
+             SRC="$FALLBACK"
+             message "Fallback to $SRC"
+         else
+-            message "warning: $SRC not found!"
++            fatal "error: $SRC not found! build it first (e.g. ./build.sh ubuntu / ./build.sh kernel)"
+         fi
+     fi
+ 
+diff --git a/device/rockchip/rk356x/BoardConfig-rk3568-evb1-ddr4-v10.mk b/device/rockchip/rk356x/BoardConfig-rk3568-evb1-ddr4-v10.mk
+index 62828272f..9d3c767bf 100644
+--- a/device/rockchip/rk356x/BoardConfig-rk3568-evb1-ddr4-v10.mk
++++ b/device/rockchip/rk356x/BoardConfig-rk3568-evb1-ddr4-v10.mk
+@@ -38,6 +38,10 @@ export RK_TARGET_PRODUCT=rk356x
+ export RK_ROOTFS_TYPE=ext4
+ # Set debian version (debian10: buster, debian11: bullseye)
+ export RK_DEBIAN_VERSION=buster
++# Set ubuntu version (ubuntu20.04: focal, ubuntu22.04: jammy)
++export RK_UBUNTU_VERSION=jammy
++# Default rootfs of this board is Ubuntu 22.04 (override: export RK_ROOTFS_SYSTEM=buildroot)
++export RK_ROOTFS_SYSTEM=${RK_ROOTFS_SYSTEM:-ubuntu}
+ # yocto machine
+ export RK_YOCTO_MACHINE=rockchip-rk3568-evb
+ # rootfs image path
+diff --git a/kernel/arch/arm64/boot/dts/rockchip/Makefile b/kernel/arch/arm64/boot/dts/rockchip/Makefile
+index 788b104f1..fb149c580 100644
+--- a/kernel/arch/arm64/boot/dts/rockchip/Makefile
++++ b/kernel/arch/arm64/boot/dts/rockchip/Makefile
+@@ -98,6 +98,9 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-android9.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-linux.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb1-ddr4-v10-linux-spi-nor.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-m3568ha-linux.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-m3568ha-nofiq.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-m3568ha-evb.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb2-lp4x-v10.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb2-lp4x-v10-bt1120-to-hdmi.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-evb4-lp3-v10.dtb
+diff --git a/kernel/drivers/gpu/drm/rockchip/dw-mipi-dsi.c b/kernel/drivers/gpu/drm/rockchip/dw-mipi-dsi.c
+index c2d7db8fd..f32092ba1 100644
+--- a/kernel/drivers/gpu/drm/rockchip/dw-mipi-dsi.c
++++ b/kernel/drivers/gpu/drm/rockchip/dw-mipi-dsi.c
+@@ -1069,7 +1069,14 @@ static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
+ 	regmap_write(dsi->regmap, DSI_PWR_UP, RESET);
+ 	regmap_write(dsi->regmap, DSI_LPCLK_CTRL, 0);
+ 	regmap_write(dsi->regmap, DSI_EDPI_CMD_SIZE, 0);
+-	regmap_write(dsi->regmap, DSI_MODE_CFG, CMD_VIDEO_MODE(COMMAND_MODE));
++	/*
++	 * Video mode panels: keep VIDEO_MODE. Forcing COMMAND_MODE here leaves
++	 * the host sending no video packets (only the HS clock), which shows up
++	 * as flickering vertical lines on the panel.
++	 */
++	if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO))
++		regmap_write(dsi->regmap, DSI_MODE_CFG,
++			     CMD_VIDEO_MODE(COMMAND_MODE));
+ 	regmap_write(dsi->regmap, DSI_PWR_UP, POWER_UP);
+ 
+ 	if (dsi->slave)
+diff --git a/kernel/drivers/input/touchscreen/gt1x/gt1x.c b/kernel/drivers/input/touchscreen/gt1x/gt1x.c
+index f65ca3b91..6e468b96c 100644
+--- a/kernel/drivers/input/touchscreen/gt1x/gt1x.c
++++ b/kernel/drivers/input/touchscreen/gt1x/gt1x.c
+@@ -279,7 +279,10 @@ static void gt1x_ts_work_func(struct work_struct *work)
+ #endif
+ 
+ exit_work_func:
+-	if (!gt1x_rawdiff_mode && (ret >= 0 || ret == ERROR_VALUE)) {
++	/* 无论本次读取成功还是失败, 都要清 0x814E 状态位。
++	 * 原逻辑在 i2c 读失败(ret<0 且 != ERROR_VALUE)时跳过清零, 此时 IC 的 INT 会一直
++	 * 保持拉低, 而中断注册的是下降沿, 于是再也收不到边沿 -> 触摸永久失效。 */
++	if (!gt1x_rawdiff_mode) {
+ 		ret = gt1x_i2c_write(GTP_READ_COOR_ADDR, &end_cmd, 1);
+ 		if (ret < 0) {
+ 			GTP_ERROR("I2C write end_cmd  error!");
+diff --git a/kernel/drivers/input/touchscreen/gt1x/gt1x_cfg.h b/kernel/drivers/input/touchscreen/gt1x/gt1x_cfg.h
+index 6581aebfe..047b486a9 100644
+--- a/kernel/drivers/input/touchscreen/gt1x/gt1x_cfg.h
++++ b/kernel/drivers/input/touchscreen/gt1x/gt1x_cfg.h
+@@ -19,9 +19,11 @@
+ #define _GOODIX_GT1X_CFG_H_
+ 
+ /* CFG for GT5688 */
++#if GTP_DRIVER_SEND_CFG
+ static u8 gtp_dat_5688[] = {
+ 	/* <1080, 1920>*/
+ 	#include "GT5688_Config_20170713_1080_1920.cfg"
+ };
++#endif
+ 
+ #endif /* _GOODIX_GT1X_CFG_H_ */
+diff --git a/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.c b/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.c
+index 48b29ab50..cdd5f9add 100644
+--- a/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.c
++++ b/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.c
+@@ -654,6 +654,24 @@ s32 gt1x_init_panel(void)
+ 
+ 	GTP_INFO("X_MAX=%d,Y_MAX=%d,TRIGGER=0x%02x,WAKEUP_LEVEL=%d", gt1x_abs_x_max, gt1x_abs_y_max, gt1x_int_type, gt1x_wakeup_level);
+ 
++	/* 从 IC 0x8047 回读到的配置块打印出来(前 32 字节), 用于判断 IC flash
++	 * 里的配置到底有没有被之前那版驱动写坏。 */
++	GTP_INFO("IC config: ver=0x%02X, cfg_len=%d", gt1x_config[0], cfg_len);
++	print_hex_dump(KERN_INFO, "GT1X CFG: ", DUMP_PREFIX_OFFSET, 16, 1,
++		       gt1x_config, 32, false);
++
++	/* 回读的分辨率若明显不合理(本板实测曾读到 1320x12880), 说明 IC 配置不可信,
++	 * 直接用面板真实分辨率兜底, 否则 input 上报范围(ABS_MT_POSITION_X/Y)是错的,
++	 * 触摸坐标会被全部映射到屏幕边缘。 */
++	if (gt1x_abs_x_max == 0 || gt1x_abs_y_max == 0 ||
++	    gt1x_abs_x_max > 4096 || gt1x_abs_y_max > 4096) {
++		GTP_ERROR("IC resolution invalid (%dx%d), fallback to %dx%d",
++			  gt1x_abs_x_max, gt1x_abs_y_max,
++			  GT1X_FALLBACK_X, GT1X_FALLBACK_Y);
++		gt1x_abs_x_max = GT1X_FALLBACK_X;
++		gt1x_abs_y_max = GT1X_FALLBACK_Y;
++	}
++
+ 	gt1x_cfg_length = cfg_len;
+ 	ret = gt1x_send_cfg(gt1x_config, gt1x_cfg_length);
+ 	return ret;
+@@ -1118,16 +1136,68 @@ s32 gt1x_request_event_handler(void)
+  * @data:
+  * Return    <0: failed, 0: succeed
+  */
++/*
++ * gt1x_frame_check - 校验一帧触摸数据的 checksum
++ *
++ * GT911 在不同固件/配置下, 0x814E 之后的有效帧长度有三种写法:
++ *   L0 = 1 + 8*n      (最后一点的第 8 字节本身就是校验和, Goodix 主线约定)
++ *   L1 = 1 + 8*n + 1  (再多 1 个 key 字节)
++ *   L2 = 1 + 8*n + 2  (key 字节 + 校验字节, 本驱动原先只认这一种)
++ *
++ * 本板 IC 在 0x8157/0x8158 后面两个字节是上一帧的残留非 0 数据,
++ * 用 L2 求和永远不为 0, 于是每一帧都被判成 checksum error 直接丢弃,
++ * 桌面上表现为"完全没有触摸"。现在三种长度都试, 命中任一种就接受。
++ *
++ * Return: 0/1/2 = 命中的帧长度方案(L0/L1/L2), -1 = 三种都不匹配(帧确实坏了)
++ * @key_ok: 1 表示 key 字节落在已校验范围内(可信), 0 表示不可信
++ */
++static s32 gt1x_frame_check(u8 *d, u8 touch_num, u8 *key_ok)
++{
++	s32 i;
++	s32 sum = 0;
++	s32 len0 = 1 + 8 * touch_num;
++	s32 s0 = -1, s1 = -1, s2 = -1;
++
++	for (i = 0; i < len0 + 2; i++) {
++		sum += d[i];
++		if (i == len0 - 1)
++			s0 = sum;
++		else if (i == len0)
++			s1 = sum;
++		else if (i == len0 + 1)
++			s2 = sum;
++	}
++
++	if (key_ok)
++		*key_ok = 1;
++
++	if (s0 == 0) {
++		/* 只校验到最后一个点, key 字节没被覆盖 */
++		if (key_ok)
++			*key_ok = 0;
++		return 0;
++	}
++	if (s1 == 0)
++		return 1;
++	if (s2 == 0)
++		return 2;
++
++	return -1;
++}
++
+ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *pen_dev)
+ {
+ 	u8 touch_data[1 + 8 * GTP_MAX_TOUCH + 2] = { 0 };
+ 	static u16 pre_event;
+ 	static u16 pre_index;
++	static s32 cksum_scheme_logged;
++	static s32 frame_dump_cnt;
+ 	u8 touch_num = 0;
+ 	u8 key_value = 0;
++	u8 key_ok = 1;
+ 	u16 cur_event = 0;
+ 	u8 *coor_data = NULL;
+-	u8 check_sum = 0;
++	s32 scheme = 0;
+ 	s32 input_x = 0;
+ 	s32 input_y = 0;
+ 	s32 input_w = 0;
+@@ -1155,22 +1225,25 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
+ 		}
+ 	}
+ 
+-	/* cacl checksum */
+-	for (i = 0; i < 1 + 8 * touch_num + 2; i++) {
+-		check_sum += touch_data[i];
+-	}
+-	if (check_sum) { /* checksum error*/
+-		ret = gt1x_i2c_read(GTP_READ_COOR_ADDR, touch_data, 3 + 8 * touch_num);
+-		if (ret) {
+-			return ret;
+-		}
+-
+-		for (i = 0, check_sum = 0; i < 3 + 8 * touch_num; i++) {
+-			check_sum += touch_data[i];
++	/* checksum: 只统计, 绝不丢帧。
++	 * 完全对齐 rk3568_OHOS 的 touch_gt911.c: 那边根本不校验 checksum,
++	 * 只读 0x814E 状态 + 0x814F 起的 8*n 字节就直接解析坐标。
++	 * 本板 I2C 会偶发读错 1~2 字节(开机时 IC 版本读 3 次才成功),
++	 * gt1x 老代码"checksum 不为 0 就 return ERROR_VALUE"的策略会把
++	 * 每一帧都丢掉, 桌面上就是完全没触摸。这里仅保留判断用于打印证据。 */
++	if (touch_num) {
++		scheme = gt1x_frame_check(touch_data, touch_num, &key_ok);
++		if (!cksum_scheme_logged) {
++			GTP_INFO("touch frame checksum scheme: %s (n=%d)",
++				 (scheme >= 0) ? "matched" : "MISMATCH(ignored, follow OHOS)",
++				 touch_num);
++			cksum_scheme_logged = 1;
+ 		}
+-		if (check_sum) {
+-			GTP_ERROR("Checksum error[%x]", check_sum);
+-			return ERROR_VALUE;
++		if (frame_dump_cnt < 8) {
++			GTP_INFO("touch frame (n=%d, scheme=%d):", touch_num, scheme);
++			print_hex_dump(KERN_INFO, "GT1X TOUCH: ", DUMP_PREFIX_OFFSET,
++				       16, 1, touch_data, 1 + 8 * touch_num + 2, false);
++			frame_dump_cnt++;
+ 		}
+ 	}
+ 	/*
+@@ -1178,7 +1251,8 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
+ 	 * bits:     bit4	bit3		    bit2	 bit1	   bit0
+ 	 * event:  hover  stylus_key  stylus    key    touch
+ 	 */
+-	key_value = touch_data[1 + 8 * touch_num];
++	if (key_ok)
++		key_value = touch_data[1 + 8 * touch_num];
+ 	/*  start check current event */
+ 	if ((touch_data[0] & 0x10) && key_value) {
+ #if (GTP_HAVE_STYLUS_KEY || GTP_HAVE_TOUCH_KEY || TPD_HAVE_BUTTON)
+@@ -1198,6 +1272,10 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
+ 	else if (touch_num) {
+ 		SET_BIT(cur_event, BIT_TOUCH);
+ 	}
++	/* OHOS 的判定只有一句: 状态字节非 0x80 且点数 > 0 就是按下.
++	 * 数据字节被 I2C 读错时上面的 key 分支可能把 BIT_TOUCH 吞掉, 这里兜底。 */
++	if (touch_num)
++		SET_BIT(cur_event, BIT_TOUCH);
+ 
+ 	/* start handle current event and pre-event */
+ #if GTP_HAVE_STYLUS_KEY
+@@ -1261,38 +1339,68 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
+ 	}
+ #endif
+ 
+-	/* finger touch event*/
++	/* finger touch event
++	 * 坐标映射完全照抄 rk3568_OHOS 的 touch_gt911.c
++	 * (ChipVersionDefault + CONFIG_ARCH_ROCKCHIP 分支):
++	 *     x = resX - raw_x ;  y = resY - raw_y    (两轴都取反)
++	 * 外加 OHOS 对 y 的三段小补偿 (GT_Y_OFFSET_A/B/C 与 CORRECTION_VALUE_A/B/C)。
++	 * 老代码是原样透传 (identity), 和 OHOS 的坐标语义相反, 所以就算通了方向也是反的。 */
+ 	if (CHK_BIT(cur_event, BIT_TOUCH)) {
+-		u8 report_num = 0;
+-		coor_data = &touch_data[1];
+-		id = coor_data[0] & 0x0F;
+-		for (i = 0; i < GTP_MAX_TOUCH; i++) {
+-			if (i == id) {
+-				input_x = coor_data[1] | (coor_data[2] << 8);
+-				input_y = coor_data[3] | (coor_data[4] << 8);
+-				input_w = coor_data[5] | (coor_data[6] << 8);
+-
+-				input_x = GTP_WARP_X(gt1x_abs_x_max, input_x);
+-				input_y = GTP_WARP_Y(gt1x_abs_y_max, input_y);
+-
+-				GTP_DEBUG("(%d)(%d,%d)[%d]", id, input_x, input_y, input_w);
+-				gt1x_touch_down(input_x, input_y, input_w, i);
+-				if (report_num++ < touch_num) {
+-					coor_data += 8;
+-					id = coor_data[0] & 0x0F;
+-				}
+-				pre_index |= 0x01 << i;
+-			} else if (pre_index & (0x01 << i)) {
+-				if (gt1x_ics_slot_report)
++		u16 cur_index = 0;
++
++		for (i = 0; i < touch_num; i++) {
++			coor_data = &touch_data[1 + 8 * i];
++			id = coor_data[0] & 0x0F;
++			input_x = coor_data[1] | (coor_data[2] << 8);
++			input_y = coor_data[3] | (coor_data[4] << 8);
++			input_w = coor_data[5] | (coor_data[6] << 8);
++
++			/* 离谱的原始值(I2C 读错)直接跳过这一点, 免得光标乱飞 */
++			if (input_x > 0x1000 || input_y > 0x1000) {
++				GTP_DEBUG("drop bogus point(%d) raw=(%d,%d)", id, input_x, input_y);
++				continue;
++			}
++
++			input_x = gt1x_abs_x_max - input_x;
++			input_y = gt1x_abs_y_max - input_y;
++
++			/* OHOS: 按 y 分段补偿 */
++			if (input_y < GT1X_Y_OFFSET_A)
++				input_y += GT1X_CORRECTION_A;
++			else if (input_y < GT1X_Y_OFFSET_B)
++				input_y += GT1X_CORRECTION_B;
++			else if (input_y < GT1X_Y_OFFSET_C)
++				input_y += GT1X_CORRECTION_C;
++
++			/* 夹到上报范围内, 保证一定有坐标上屏 */
++			if (input_x < 0)
++				input_x = 0;
++			if (input_x > gt1x_abs_x_max - 1)
++				input_x = gt1x_abs_x_max - 1;
++			if (input_y < 0)
++				input_y = 0;
++			if (input_y > gt1x_abs_y_max - 1)
++				input_y = gt1x_abs_y_max - 1;
++
++			GTP_DEBUG("(%d)(%d,%d)[%d]", id, input_x, input_y, input_w);
++			gt1x_touch_down(input_x, input_y, input_w, id);
++			if (id < GTP_MAX_TOUCH)
++				cur_index |= 0x01 << id;
++		}
++
++		/* 本帧没再出现的点 -> 抬手 */
++		if (gt1x_ics_slot_report) {
++			for (i = 0; i < GTP_MAX_TOUCH; i++) {
++				if ((pre_index & (0x01 << i)) && !(cur_index & (0x01 << i)))
+ 					gt1x_touch_up(i);
+-				pre_index &= ~(0x01 << i);
+ 			}
++		} else if (!cur_index) {
++			gt1x_touch_up(0);
+ 		}
++		pre_index = cur_index;
+ 	} else if (CHK_BIT(pre_event, BIT_TOUCH)) {
+ 		if (gt1x_ics_slot_report) {
+-			int cycles = pre_index < 3 ? 3 : GTP_MAX_TOUCH;
+-
+-			for (i = 0; i < cycles; i++) {
++			for (i = 0; i < GTP_MAX_TOUCH; i++) {
+ 				if (pre_index >> i & 0x01)
+ 					gt1x_touch_up(i);
+ 			}
+diff --git a/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.h b/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.h
+index 7acc390d4..2f992f219 100644
+--- a/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.h
++++ b/kernel/drivers/input/touchscreen/gt1x/gt1x_generic.h
+@@ -51,7 +51,12 @@
+ #endif
+ /***************************PART1:ON/OFF define*******************************/
+ #define GTP_INCELL_PANEL      0
+-#define GTP_DRIVER_SEND_CFG   1	/* send config to TP while initializing (for no config built in TP's flash) */
++/* 0 = 不向 IC 下发驱动内置的示例配置表, 直接使用 TP 自身 flash 里的出厂配置。
++ * 内置 GTP_CFG_GROUP0 只是示例配置（源码注释已提示"发送此配置会导致芯片不能正常工作"）,
++ * 与本板 720x1280 ILI9881C 屏配套的 GT911 传感通道数不一致, 会写坏 IC:
++ * 触摸数据 checksum 全错, 0x814E 状态位清不掉, INT 一直拉低, 边沿触发中断永久丢失。
++ * M-3568HA: GT911 出厂配置在 flash 中, 复位后自动加载, 无需驱动下发。 */
++#define GTP_DRIVER_SEND_CFG   0
+ #define GTP_CUSTOM_CFG        0	/* customize resolution & interrupt trigger mode */
+ 
+ #define GTP_CHANGE_X2Y        0	/* exchange xy */
+@@ -263,6 +268,24 @@
+ 
+ #define GTP_MAX_TOUCH    10
+ 
++/* 本板面板真实分辨率 (ILI9881C 720x1280)。
++ * 仅当从 IC 0x8047 回读到的配置明显不合理时用来兜底,
++ * 避免 input 上报范围 (ABS_MT_POSITION_X/Y) 变成 1320x12880 这种垃圾值。 */
++#define GT1X_FALLBACK_X   720
++#define GT1X_FALLBACK_Y   1280
++
++/* 坐标映射参数, 逐条照抄 rk3568_OHOS 的 touch_gt911.c
++ * (ChipVersionDefault + CONFIG_ARCH_ROCKCHIP 分支):
++ *   x = resX - raw_x;  y = resY - raw_y;  然后 y 做三段补偿
++ *   y < 200 -> +30 ;  y < 700 -> +20 ;  y < 1000 -> +5
++ * 宏名与 OHOS 的 GT_Y_OFFSET_A/B/C、CORRECTION_VALUE_A/B/C 一一对应。 */
++#define GT1X_Y_OFFSET_A    200
++#define GT1X_Y_OFFSET_B    700
++#define GT1X_Y_OFFSET_C    1000
++#define GT1X_CORRECTION_A  30
++#define GT1X_CORRECTION_B  20
++#define GT1X_CORRECTION_C  5
++
+ #if GTP_WITH_STYLUS
+ #define GTP_STYLUS_KEY_TAB {BTN_STYLUS, BTN_STYLUS2}
+ #endif

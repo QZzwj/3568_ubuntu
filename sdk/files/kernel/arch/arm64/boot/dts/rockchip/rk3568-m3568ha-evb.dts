@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * 诊断用 dts：完全用 Rockchip 官方 EVB1 的设备树（只把调试串口波特率
+ * 改成 1500000，和 loader 一致），不带任何 M-3568HA 板级改动。
+ * 目的：判断 "内核+U-Boot+loader 这套组合本身能不能跑起来"。
+ */
+
+/dts-v1/;
+
+#include "rk3568-evb1-ddr4-v10.dtsi"
+#include "rk3568-linux.dtsi"
+#include <dt-bindings/display/rockchip_vop.h>
+
+/ {
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xfe660000 console=ttyFIQ0 ignore_loglevel root=PARTUUID=614e0000-0000 rw rootwait";
+	};
+};
+
+&{/fiq-debugger} {
+	rockchip,baudrate = <1500000>;
+};
+
+&vp0 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
+};
+
+&vp1 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER1>;
+};

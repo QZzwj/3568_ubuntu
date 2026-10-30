@@ -1,0 +1,17 @@
+#!/bin/sh
+# Grow the rootfs filesystem to the full size of the rootfs partition.
+#
+# parameter-*.txt declares rootfs with a fixed size (e.g. 0x00c00000 sectors
+# = 6GB), but the ext4 image we ship is only ~1GB, so the rest of the
+# partition would be unusable until someone runs resize2fs by hand.
+set -e
+
+[ -e /etc/.rootfs-resized ] && exit 0
+
+DEV=$(findmnt -no SOURCE /)
+[ -n "$DEV" ] || exit 0
+
+echo "rk-resize-rootfs: resizing $DEV"
+resize2fs "$DEV" || exit 1
+touch /etc/.rootfs-resized
+echo "rk-resize-rootfs: done"

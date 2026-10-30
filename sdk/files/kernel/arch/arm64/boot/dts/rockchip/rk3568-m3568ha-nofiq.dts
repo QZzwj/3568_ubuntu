@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * 诊断用 dts（不改动正式板级 dts）
+ *   - 去掉 fiq-debugger，改用标准 8250 驱动把 UART2 变成 /dev/ttyS2
+ *   - console=ttyS2,1500000 + console=tty0（屏幕也输出内核日志）
+ * 目的：区分 "内核真的没跑起来" 还是 "只是 fiq-debugger 串口没输出"
+ */
+
+/dts-v1/;
+
+#include "rk3568-m3568ha.dtsi"
+#include "rk3568-linux.dtsi"
+#include <dt-bindings/display/rockchip_vop.h>
+
+/ {
+	/delete-node/ fiq-debugger;
+
+	chosen {
+		bootargs = "earlycon=uart8250,mmio32,0xfe660000 console=ttyS2,1500000 console=tty0 ignore_loglevel root=PARTUUID=614e0000-0000 rw rootwait";
+	};
+};
+
+&uart2 {
+	status = "okay";
+	pinctrl-0 = <&uart2m0_xfer>;
+};
+
+&vp0 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
+};
+
+&vp1 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER1>;
+};

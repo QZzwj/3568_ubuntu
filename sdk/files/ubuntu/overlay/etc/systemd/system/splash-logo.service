@@ -1,0 +1,14 @@
+[Unit]
+Description=Splash logo on framebuffer (/dev/fb0)
+DefaultDependencies=no
+After=local-fs.target
+Before=getty@tty1.service display-manager.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/splash-show
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

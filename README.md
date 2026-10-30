@@ -71,6 +71,20 @@ sudo ./scripts/apply-overlay.sh             # 真正铺盘
 
 桌面层只是最后一层。系统镜像是 Rockchip Linux SDK（`rk3568_linux`，本仓库不含）用 `build.sh` 拼出来的：
 
+### SDK 底座与板级增量
+
+SDK（Rockchip Linux SDK，Linux 4.19.232 / U-Boot 2017.09）不在仓库里，仓库只放本板相对底座的增量：
+`sdk/patches/` 一个 502 行补丁 + `sdk/files/` 23 个文件（板级 BoardConfig、5 份 DTS、开机 logo、ubuntu rootfs 脚本），共 9.2 MB。
+补丁基于 `github.com/Rosa1337/rk3568_linux` @ `82ca7e638` 验证，详见 [`sdk/README.md`](sdk/README.md)。
+
+```bash
+git clone https://github.com/QZzwj/3568_ubuntu.git ~/3568_ubuntu
+~/3568_ubuntu/scripts/apply-to-sdk.sh ~/rk3568/rk3568_linux --dry-run   # 先看改什么
+~/3568_ubuntu/scripts/apply-to-sdk.sh ~/rk3568/rk3568_linux             # 打补丁 + 覆盖新增文件
+```
+
+应用之后：
+
 ```bash
 cd rk3568_linux
 ./build.sh lunch                        # 选 6 → BoardConfig-rk3568-m3568ha.mk
@@ -167,7 +181,9 @@ sudo tools/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool/upgrade_tool uf rockdev/u
 | `kernel/lcd-dsi0-mipi-m3568ha.dtsi` | MIPI 屏 DTS（ILI9881C 完整 190 条初始化序列） |
 | `docs/pic/` | 板端实拍效果图与索引 |
 | `docs/touch-calib/` | 触屏边缘探测 / 五点校准工具与 1164 条实测样本 |
-| `scripts/apply-overlay.sh` | 一键部署 |
+| `scripts/apply-overlay.sh` | 一键部署（板上铺盘） |
+| `scripts/apply-to-sdk.sh` | 一键把板级补丁 + 新增文件贴进 Rockchip Linux SDK |
+| `sdk/` | SDK 增量：board/驱动/build.sh 补丁 + 板级配置、DTS、开机 logo、ubuntu rootfs 脚本 |
 
 ## 硬件与系统
 

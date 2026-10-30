@@ -1,0 +1,12 @@
+[Unit]
+Description=Rockchip wifi/bt init (rk_wifi_init)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/etc/init.d/rkwifibt.sh
+
+[Install]
+WantedBy=multi-user.target
