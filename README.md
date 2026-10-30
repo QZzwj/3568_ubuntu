@@ -73,8 +73,10 @@ sudo ./scripts/apply-overlay.sh             # 真正铺盘
 
 ### SDK 底座与板级增量
 
-SDK（Rockchip Linux SDK，Linux 4.19.232 / U-Boot 2017.09）不在仓库里，仓库只放本板相对底座的增量：
-`sdk/patches/` 一个 502 行补丁 + `sdk/files/` 23 个文件（板级 BoardConfig、5 份 DTS、开机 logo、ubuntu rootfs 脚本），共 9.2 MB。
+SDK（Rockchip Linux SDK，Linux 4.19.232 / U-Boot 2017.09）有两种拿法：`main` 分支只放本板相对底座的增量（9.2 MB），
+整套源码在 `sdk-source` 分支（见下一小节）。
+
+`sdk/` 里是 `sdk/patches/` 一个 502 行补丁 + `sdk/files/` 23 个文件（板级 BoardConfig、5 份 DTS、开机 logo、ubuntu rootfs 脚本）。
 补丁基于 `github.com/Rosa1337/rk3568_linux` @ `82ca7e638` 验证，详见 [`sdk/README.md`](sdk/README.md)。
 
 ```bash
@@ -83,14 +85,49 @@ git clone https://github.com/QZzwj/3568_ubuntu.git ~/3568_ubuntu
 ~/3568_ubuntu/scripts/apply-to-sdk.sh ~/rk3568/rk3568_linux             # 打补丁 + 覆盖新增文件
 ```
 
+### 完整 SDK 源码（`sdk-source` 分支）
+
+不想自己准备底座、要一套**开箱即用**的源码树，直接拉 `sdk-source`（工作树 3.47 GB，13 万个文件）：
+
+```bash
+git clone -b sdk-source --depth 1 git@github.com:QZzwj/3568_ubuntu.git rk3568_linux
+cd rk3568_linux
+./build.sh lunch                        # 选 6 → BoardConfig-rk3568-m3568ha.mk（已带 .target_product）
+./build.sh kernel && ./build.sh firmware && ./build.sh updateimg
+```
+
+分支里**包含**：`device/`（含 5 份 m3568ha DTS + 屏参 + 触摸/DSI 驱动）、`kernel/`（源码，1.02 GB，不含 `.o`/`Image`）、
+`u-boot/`、`prebuilts/`（交叉工具链，可按需删）、`rkbin/`、`tools/`、`buildroot/`（`mkfirmware.sh` 要 host tools）、
+`external/rkwifibt/`（AP6275S 固件）、`debian/packages/arm64/rkwifibt/`（rootfs 用的 Wi-Fi 固件 deb）。
+
+分支里**不包含**（都是产物或与出镜像无关，不影响 `build.sh` 编译）：
+
+| 未收录 | 体积 | 为什么不影响 |
+|---|---|---|
+| `ubuntu/` | 19 GB | 全是 `ubuntu-rootfs.img*`（3 GB × 10）产物，源码零跟踪；rootfs 由 `ubuntu/mk-rootfs-ubuntu.sh` 现打 |
+| `rockdev/` | 4.2 GB | `build.sh firmware` 现场生成 |
+| `external/` 其余 | 4.3 GB | 只需 `rkwifibt`；`libmali`/`rknpu2`/`camera_engine_rkaiq` 是可选预编译库 |
+| `debian/` 其余 | 1.2 GB | 只需 `rkwifibt` 的 deb |
+| `docs/` | 1.1 GB | 参考文档 |
+| `kernel/` 构建产物 | 2.0 GB | `.o`/`vmlinux`/`Image`/`include/generated`，`make` 现生成 |
+
+### 宿主依赖（新机器一次性）
+
+SDK 只带交叉工具链，**宿主机的 kconfig/host tools 要自己装**，缺了会在 `make defconfig` 阶段就报错：
+
+```bash
+sudo apt install -y build-essential flex bison bc libssl-dev lz4 device-tree-compiler \
+                    python3 rsync qemu-user-static binfmt-support
+```
+
+`flex`/`bison` 缺了会报 `scripts/kconfig/zconf.tab.c` 生成失败；预置工具链里自带的 bison/m4 是绝对路径（`/home/<原作者>/...`），换了机器不可用，务必用系统包。
+
 应用之后：
 
 ```bash
 cd rk3568_linux
 ./build.sh lunch                        # 选 6 → BoardConfig-rk3568-m3568ha.mk
 ./build.sh info                         # 核对 RK_KERNEL_DTS=rk3568-m3568ha-linux / RK_ROOTFS_SYSTEM=ubuntu
-
-sudo apt install qemu-user-static binfmt-support rsync   # 宿主机一次性准备（chroot 装包要靠 qemu 转 arm64）
 ```
 
 ### 打 rootfs（Ubuntu 22.04 + XFCE）
@@ -129,6 +166,9 @@ sudo tools/linux/Linux_Upgrade_Tool/Linux_Upgrade_Tool/upgrade_tool uf rockdev/u
 | `rockdev/boot.img` | FIT 打包的内核 + DTB |
 | `rockdev/parameter.txt` | `parameter-m3568ha.txt` 分区表（rootfs 10 GB，其余给 userdata） |
 | `rockdev/update.img` | 全量升级包 |
+
+现成的 `update.img` 不进 git（3.1 GB），随 Release 发布：见 [Releases](https://github.com/QZzwj/3568_ubuntu/releases)。
+校验：`sha256sum -c update.img.sha256`。
 
 ### rootfs 定制变量
 
