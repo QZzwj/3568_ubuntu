@@ -38,6 +38,10 @@ export RK_TARGET_PRODUCT=rk356x
 export RK_ROOTFS_TYPE=ext4
 # Set debian version (debian10: buster, debian11: bullseye)
 export RK_DEBIAN_VERSION=buster
+# Set ubuntu version (ubuntu20.04: focal, ubuntu22.04: jammy)
+export RK_UBUNTU_VERSION=jammy
+# Default rootfs of this board is Ubuntu 22.04 (override: export RK_ROOTFS_SYSTEM=buildroot)
+export RK_ROOTFS_SYSTEM=${RK_ROOTFS_SYSTEM:-ubuntu}
 # yocto machine
 export RK_YOCTO_MACHINE=rockchip-rk3568-evb
 # rootfs image path

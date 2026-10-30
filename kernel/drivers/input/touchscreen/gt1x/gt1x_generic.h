@@ -51,7 +51,12 @@
 #endif
 /***************************PART1:ON/OFF define*******************************/
 #define GTP_INCELL_PANEL      0
-#define GTP_DRIVER_SEND_CFG   1	/* send config to TP while initializing (for no config built in TP's flash) */
+/* 0 = 不向 IC 下发驱动内置的示例配置表, 直接使用 TP 自身 flash 里的出厂配置。
+ * 内置 GTP_CFG_GROUP0 只是示例配置（源码注释已提示"发送此配置会导致芯片不能正常工作"）,
+ * 与本板 720x1280 ILI9881C 屏配套的 GT911 传感通道数不一致, 会写坏 IC:
+ * 触摸数据 checksum 全错, 0x814E 状态位清不掉, INT 一直拉低, 边沿触发中断永久丢失。
+ * M-3568HA: GT911 出厂配置在 flash 中, 复位后自动加载, 无需驱动下发。 */
+#define GTP_DRIVER_SEND_CFG   0
 #define GTP_CUSTOM_CFG        0	/* customize resolution & interrupt trigger mode */
 
 #define GTP_CHANGE_X2Y        0	/* exchange xy */
@@ -262,6 +267,24 @@
 #endif
 
 #define GTP_MAX_TOUCH    10
+
+/* 本板面板真实分辨率 (ILI9881C 720x1280)。
+ * 仅当从 IC 0x8047 回读到的配置明显不合理时用来兜底,
+ * 避免 input 上报范围 (ABS_MT_POSITION_X/Y) 变成 1320x12880 这种垃圾值。 */
+#define GT1X_FALLBACK_X   720
+#define GT1X_FALLBACK_Y   1280
+
+/* 坐标映射参数, 逐条照抄 rk3568_OHOS 的 touch_gt911.c
+ * (ChipVersionDefault + CONFIG_ARCH_ROCKCHIP 分支):
+ *   x = resX - raw_x;  y = resY - raw_y;  然后 y 做三段补偿
+ *   y < 200 -> +30 ;  y < 700 -> +20 ;  y < 1000 -> +5
+ * 宏名与 OHOS 的 GT_Y_OFFSET_A/B/C、CORRECTION_VALUE_A/B/C 一一对应。 */
+#define GT1X_Y_OFFSET_A    200
+#define GT1X_Y_OFFSET_B    700
+#define GT1X_Y_OFFSET_C    1000
+#define GT1X_CORRECTION_A  30
+#define GT1X_CORRECTION_B  20
+#define GT1X_CORRECTION_C  5
 
 #if GTP_WITH_STYLUS
 #define GTP_STYLUS_KEY_TAB {BTN_STYLUS, BTN_STYLUS2}

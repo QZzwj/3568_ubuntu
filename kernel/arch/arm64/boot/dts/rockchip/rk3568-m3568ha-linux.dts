@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * M-3568HA (RK3568) Linux board dts
+ *
+ * Console : UART2_M0 -> 标准 8250 驱动 -> /dev/ttyS2 @1500000 (+ tty0 屏幕)
+ * Storage : eMMC (sdhci) + MicroSD (sdmmc0)
+ *
+ * 不使用 rockchip 的 fiq-debugger：它在 1500000 波特率下输出不可靠，表现为
+ * U-Boot 打完 "Starting kernel ..." 之后内核日志全部丢失（看起来像内核挂死）。
+ * 换成标准 8250 驱动后串口全程可用，/dev/ttyS2 就是调试口。
+ *
+ * 波特率 1500000：板载预编译 loader(SPL) 已把 UART2 配成 1500000，U-Boot 沿用，
+ * 所以 console= 必须写 1500000。但 earlycon 这里**绝对不要写波特率**：
+ * 8250_early 会用 BASE_BAUD(1843200) 重算分频，把已经配好的 1500000 改坏，
+ * 导致早期日志乱码/丢失。不写波特率时 earlycon 只接管、沿用 loader 的设置。
+ */
+
+/dts-v1/;
+
+#include "rk3568-m3568ha.dtsi"
+#include "rk3568-linux.dtsi"
+#include <dt-bindings/display/rockchip_vop.h>
+
+/ {
+	/delete-node/ fiq-debugger;
+
+	chosen {
+		/* 屏幕只显示开机 logo: 不把 console 绑到 tty0, 否则 fbcon 会盖掉画面 */
+		bootargs = "earlycon=uart8250,mmio32,0xfe660000 console=ttyS2,1500000 ignore_loglevel root=PARTUUID=614e0000-0000 rw rootwait";
+	};
+};
+
+&uart2 {
+	status = "okay";
+	pinctrl-0 = <&uart2m0_xfer>;
+};
+
+&vp0 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER0>;
+};
+
+&vp1 {
+	cursor-win-id = <ROCKCHIP_VOP2_CLUSTER1>;
+};

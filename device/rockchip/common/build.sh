@@ -207,6 +207,8 @@ function usagerootfs()
 			;;
 		debian)
 			;;
+		ubuntu)
+			;;
 		*)
 			echo "make"
 			;;
@@ -296,6 +298,7 @@ function usage()
 	echo "multi-npu_boot     -build boot image for multi-npu board"
 	echo "yocto              -build yocto rootfs"
 	echo "debian             -build debian rootfs"
+	echo "ubuntu             -build ubuntu rootfs (RK_UBUNTU_VERSION=jammy)"
 	echo "pcba               -build pcba"
 	echo "recovery           -build recovery"
 	echo "all                -build uboot, kernel, rootfs, recovery image"
@@ -801,6 +804,36 @@ function build_debian(){
 	finish_build
 }
 
+function build_ubuntu(){
+	ARCH=${RK_UBUNTU_ARCH:-arm64}
+	# UBUNTU_RELEASE can override the board config (RK_UBUNTU_VERSION)
+	RELEASE=${UBUNTU_RELEASE:-${RK_UBUNTU_VERSION:-jammy}}
+
+	echo "=========Start building ubuntu($RELEASE) for $ARCH========="
+
+	if [ ! -x "$TOP_DIR/ubuntu/mk-rootfs-ubuntu.sh" ]; then
+		echo "ERROR: ubuntu/mk-rootfs-ubuntu.sh not found"
+		exit 1
+	fi
+
+	# run in a subshell: the caller (build_rootfs) needs to stay in $TOP_DIR
+	(
+		cd "$TOP_DIR/ubuntu" || exit 1
+		RELEASE=$RELEASE ARCH=$ARCH ./mk-base-ubuntu.sh || {
+			echo "ERROR: failed to fetch ubuntu-base-$RELEASE, check your network / UBUNTU_BASE_MIRROR"
+			exit 1
+		}
+		RELEASE=$RELEASE ARCH=$ARCH WIFIBT=${RK_WIFIBT:-n} \
+			RK_WIFIBT_NVRAM=${RK_WIFIBT_NVRAM:-nvram_ap6275s.txt} \
+			./mk-rootfs-ubuntu.sh
+	) || {
+		echo "ERROR: failed to build ubuntu rootfs"
+		exit 1
+	}
+
+	finish_build
+}
+
 function build_rootfs(){
 	check_config RK_ROOTFS_IMG || return 0
 
@@ -819,6 +852,11 @@ function build_rootfs(){
 		debian)
 			build_debian
 			ln -rsf debian/linaro-rootfs.img \
+				$RK_ROOTFS_DIR/rootfs.ext4
+			;;
+		ubuntu)
+			build_ubuntu
+			ln -rsf ubuntu/ubuntu-rootfs.img \
 				$RK_ROOTFS_DIR/rootfs.ext4
 			;;
 		*)
@@ -1045,6 +1083,7 @@ function build_cleanall(){
 	rm -rf buildroot/output
 	rm -rf yocto/build/tmp
 	rm -rf debian/binary
+	rm -rf ubuntu/binary ubuntu/ubuntu-rootfs.img ubuntu/.chroot-setup.sh
 
 	finish_build
 }
@@ -1058,6 +1097,13 @@ function build_firmware(){
 function build_updateimg(){
 	IMAGE_PATH=$TOP_DIR/rockdev
 	PACK_TOOL_DIR=$TOP_DIR/tools/linux/Linux_Pack_Firmware
+
+	# Some SDK snapshots only ship the per-chip scripts (<chip>-mkupdate.sh),
+	# the generic ./mkupdate.sh is a (git-ignored) symlink -> create it on the fly
+	if [ ! -e "$PACK_TOOL_DIR/rockdev/mkupdate.sh" ] && \
+			[ -e "$PACK_TOOL_DIR/rockdev/$RK_TARGET_PRODUCT-mkupdate.sh" ]; then
+		ln -sf "$RK_TARGET_PRODUCT-mkupdate.sh" "$PACK_TOOL_DIR/rockdev/mkupdate.sh"
+	fi
 
 	cd $PACK_TOOL_DIR/rockdev
 
@@ -1276,7 +1322,7 @@ for option in ${OPTIONS}; do
 		loader) build_loader ;;
 		kernel) build_kernel ;;
 		modules) build_modules ;;
-		rootfs|buildroot|debian|yocto) build_rootfs $option ;;
+		rootfs|buildroot|debian|ubuntu|yocto) build_rootfs $option ;;
 		pcba) build_pcba ;;
 		ramboot) build_ramboot ;;
 		recovery) build_recovery ;;

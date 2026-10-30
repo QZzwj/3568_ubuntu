@@ -654,6 +654,24 @@ s32 gt1x_init_panel(void)
 
 	GTP_INFO("X_MAX=%d,Y_MAX=%d,TRIGGER=0x%02x,WAKEUP_LEVEL=%d", gt1x_abs_x_max, gt1x_abs_y_max, gt1x_int_type, gt1x_wakeup_level);
 
+	/* 从 IC 0x8047 回读到的配置块打印出来(前 32 字节), 用于判断 IC flash
+	 * 里的配置到底有没有被之前那版驱动写坏。 */
+	GTP_INFO("IC config: ver=0x%02X, cfg_len=%d", gt1x_config[0], cfg_len);
+	print_hex_dump(KERN_INFO, "GT1X CFG: ", DUMP_PREFIX_OFFSET, 16, 1,
+		       gt1x_config, 32, false);
+
+	/* 回读的分辨率若明显不合理(本板实测曾读到 1320x12880), 说明 IC 配置不可信,
+	 * 直接用面板真实分辨率兜底, 否则 input 上报范围(ABS_MT_POSITION_X/Y)是错的,
+	 * 触摸坐标会被全部映射到屏幕边缘。 */
+	if (gt1x_abs_x_max == 0 || gt1x_abs_y_max == 0 ||
+	    gt1x_abs_x_max > 4096 || gt1x_abs_y_max > 4096) {
+		GTP_ERROR("IC resolution invalid (%dx%d), fallback to %dx%d",
+			  gt1x_abs_x_max, gt1x_abs_y_max,
+			  GT1X_FALLBACK_X, GT1X_FALLBACK_Y);
+		gt1x_abs_x_max = GT1X_FALLBACK_X;
+		gt1x_abs_y_max = GT1X_FALLBACK_Y;
+	}
+
 	gt1x_cfg_length = cfg_len;
 	ret = gt1x_send_cfg(gt1x_config, gt1x_cfg_length);
 	return ret;
@@ -1118,16 +1136,68 @@ s32 gt1x_request_event_handler(void)
  * @data:
  * Return    <0: failed, 0: succeed
  */
+/*
+ * gt1x_frame_check - 校验一帧触摸数据的 checksum
+ *
+ * GT911 在不同固件/配置下, 0x814E 之后的有效帧长度有三种写法:
+ *   L0 = 1 + 8*n      (最后一点的第 8 字节本身就是校验和, Goodix 主线约定)
+ *   L1 = 1 + 8*n + 1  (再多 1 个 key 字节)
+ *   L2 = 1 + 8*n + 2  (key 字节 + 校验字节, 本驱动原先只认这一种)
+ *
+ * 本板 IC 在 0x8157/0x8158 后面两个字节是上一帧的残留非 0 数据,
+ * 用 L2 求和永远不为 0, 于是每一帧都被判成 checksum error 直接丢弃,
+ * 桌面上表现为"完全没有触摸"。现在三种长度都试, 命中任一种就接受。
+ *
+ * Return: 0/1/2 = 命中的帧长度方案(L0/L1/L2), -1 = 三种都不匹配(帧确实坏了)
+ * @key_ok: 1 表示 key 字节落在已校验范围内(可信), 0 表示不可信
+ */
+static s32 gt1x_frame_check(u8 *d, u8 touch_num, u8 *key_ok)
+{
+	s32 i;
+	s32 sum = 0;
+	s32 len0 = 1 + 8 * touch_num;
+	s32 s0 = -1, s1 = -1, s2 = -1;
+
+	for (i = 0; i < len0 + 2; i++) {
+		sum += d[i];
+		if (i == len0 - 1)
+			s0 = sum;
+		else if (i == len0)
+			s1 = sum;
+		else if (i == len0 + 1)
+			s2 = sum;
+	}
+
+	if (key_ok)
+		*key_ok = 1;
+
+	if (s0 == 0) {
+		/* 只校验到最后一个点, key 字节没被覆盖 */
+		if (key_ok)
+			*key_ok = 0;
+		return 0;
+	}
+	if (s1 == 0)
+		return 1;
+	if (s2 == 0)
+		return 2;
+
+	return -1;
+}
+
 s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *pen_dev)
 {
 	u8 touch_data[1 + 8 * GTP_MAX_TOUCH + 2] = { 0 };
 	static u16 pre_event;
 	static u16 pre_index;
+	static s32 cksum_scheme_logged;
+	static s32 frame_dump_cnt;
 	u8 touch_num = 0;
 	u8 key_value = 0;
+	u8 key_ok = 1;
 	u16 cur_event = 0;
 	u8 *coor_data = NULL;
-	u8 check_sum = 0;
+	s32 scheme = 0;
 	s32 input_x = 0;
 	s32 input_y = 0;
 	s32 input_w = 0;
@@ -1155,22 +1225,25 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
 		}
 	}
 
-	/* cacl checksum */
-	for (i = 0; i < 1 + 8 * touch_num + 2; i++) {
-		check_sum += touch_data[i];
-	}
-	if (check_sum) { /* checksum error*/
-		ret = gt1x_i2c_read(GTP_READ_COOR_ADDR, touch_data, 3 + 8 * touch_num);
-		if (ret) {
-			return ret;
+	/* checksum: 只统计, 绝不丢帧。
+	 * 完全对齐 rk3568_OHOS 的 touch_gt911.c: 那边根本不校验 checksum,
+	 * 只读 0x814E 状态 + 0x814F 起的 8*n 字节就直接解析坐标。
+	 * 本板 I2C 会偶发读错 1~2 字节(开机时 IC 版本读 3 次才成功),
+	 * gt1x 老代码"checksum 不为 0 就 return ERROR_VALUE"的策略会把
+	 * 每一帧都丢掉, 桌面上就是完全没触摸。这里仅保留判断用于打印证据。 */
+	if (touch_num) {
+		scheme = gt1x_frame_check(touch_data, touch_num, &key_ok);
+		if (!cksum_scheme_logged) {
+			GTP_INFO("touch frame checksum scheme: %s (n=%d)",
+				 (scheme >= 0) ? "matched" : "MISMATCH(ignored, follow OHOS)",
+				 touch_num);
+			cksum_scheme_logged = 1;
 		}
-
-		for (i = 0, check_sum = 0; i < 3 + 8 * touch_num; i++) {
-			check_sum += touch_data[i];
-		}
-		if (check_sum) {
-			GTP_ERROR("Checksum error[%x]", check_sum);
-			return ERROR_VALUE;
+		if (frame_dump_cnt < 8) {
+			GTP_INFO("touch frame (n=%d, scheme=%d):", touch_num, scheme);
+			print_hex_dump(KERN_INFO, "GT1X TOUCH: ", DUMP_PREFIX_OFFSET,
+				       16, 1, touch_data, 1 + 8 * touch_num + 2, false);
+			frame_dump_cnt++;
 		}
 	}
 	/*
@@ -1178,7 +1251,8 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
 	 * bits:     bit4	bit3		    bit2	 bit1	   bit0
 	 * event:  hover  stylus_key  stylus    key    touch
 	 */
-	key_value = touch_data[1 + 8 * touch_num];
+	if (key_ok)
+		key_value = touch_data[1 + 8 * touch_num];
 	/*  start check current event */
 	if ((touch_data[0] & 0x10) && key_value) {
 #if (GTP_HAVE_STYLUS_KEY || GTP_HAVE_TOUCH_KEY || TPD_HAVE_BUTTON)
@@ -1198,6 +1272,10 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
 	else if (touch_num) {
 		SET_BIT(cur_event, BIT_TOUCH);
 	}
+	/* OHOS 的判定只有一句: 状态字节非 0x80 且点数 > 0 就是按下.
+	 * 数据字节被 I2C 读错时上面的 key 分支可能把 BIT_TOUCH 吞掉, 这里兜底。 */
+	if (touch_num)
+		SET_BIT(cur_event, BIT_TOUCH);
 
 	/* start handle current event and pre-event */
 #if GTP_HAVE_STYLUS_KEY
@@ -1261,38 +1339,68 @@ s32 gt1x_touch_event_handler(u8 *data, struct input_dev *dev, struct input_dev *
 	}
 #endif
 
-	/* finger touch event*/
+	/* finger touch event
+	 * 坐标映射完全照抄 rk3568_OHOS 的 touch_gt911.c
+	 * (ChipVersionDefault + CONFIG_ARCH_ROCKCHIP 分支):
+	 *     x = resX - raw_x ;  y = resY - raw_y    (两轴都取反)
+	 * 外加 OHOS 对 y 的三段小补偿 (GT_Y_OFFSET_A/B/C 与 CORRECTION_VALUE_A/B/C)。
+	 * 老代码是原样透传 (identity), 和 OHOS 的坐标语义相反, 所以就算通了方向也是反的。 */
 	if (CHK_BIT(cur_event, BIT_TOUCH)) {
-		u8 report_num = 0;
-		coor_data = &touch_data[1];
-		id = coor_data[0] & 0x0F;
-		for (i = 0; i < GTP_MAX_TOUCH; i++) {
-			if (i == id) {
-				input_x = coor_data[1] | (coor_data[2] << 8);
-				input_y = coor_data[3] | (coor_data[4] << 8);
-				input_w = coor_data[5] | (coor_data[6] << 8);
+		u16 cur_index = 0;
 
-				input_x = GTP_WARP_X(gt1x_abs_x_max, input_x);
-				input_y = GTP_WARP_Y(gt1x_abs_y_max, input_y);
+		for (i = 0; i < touch_num; i++) {
+			coor_data = &touch_data[1 + 8 * i];
+			id = coor_data[0] & 0x0F;
+			input_x = coor_data[1] | (coor_data[2] << 8);
+			input_y = coor_data[3] | (coor_data[4] << 8);
+			input_w = coor_data[5] | (coor_data[6] << 8);
 
-				GTP_DEBUG("(%d)(%d,%d)[%d]", id, input_x, input_y, input_w);
-				gt1x_touch_down(input_x, input_y, input_w, i);
-				if (report_num++ < touch_num) {
-					coor_data += 8;
-					id = coor_data[0] & 0x0F;
-				}
-				pre_index |= 0x01 << i;
-			} else if (pre_index & (0x01 << i)) {
-				if (gt1x_ics_slot_report)
-					gt1x_touch_up(i);
-				pre_index &= ~(0x01 << i);
+			/* 离谱的原始值(I2C 读错)直接跳过这一点, 免得光标乱飞 */
+			if (input_x > 0x1000 || input_y > 0x1000) {
+				GTP_DEBUG("drop bogus point(%d) raw=(%d,%d)", id, input_x, input_y);
+				continue;
 			}
+
+			input_x = gt1x_abs_x_max - input_x;
+			input_y = gt1x_abs_y_max - input_y;
+
+			/* OHOS: 按 y 分段补偿 */
+			if (input_y < GT1X_Y_OFFSET_A)
+				input_y += GT1X_CORRECTION_A;
+			else if (input_y < GT1X_Y_OFFSET_B)
+				input_y += GT1X_CORRECTION_B;
+			else if (input_y < GT1X_Y_OFFSET_C)
+				input_y += GT1X_CORRECTION_C;
+
+			/* 夹到上报范围内, 保证一定有坐标上屏 */
+			if (input_x < 0)
+				input_x = 0;
+			if (input_x > gt1x_abs_x_max - 1)
+				input_x = gt1x_abs_x_max - 1;
+			if (input_y < 0)
+				input_y = 0;
+			if (input_y > gt1x_abs_y_max - 1)
+				input_y = gt1x_abs_y_max - 1;
+
+			GTP_DEBUG("(%d)(%d,%d)[%d]", id, input_x, input_y, input_w);
+			gt1x_touch_down(input_x, input_y, input_w, id);
+			if (id < GTP_MAX_TOUCH)
+				cur_index |= 0x01 << id;
 		}
+
+		/* 本帧没再出现的点 -> 抬手 */
+		if (gt1x_ics_slot_report) {
+			for (i = 0; i < GTP_MAX_TOUCH; i++) {
+				if ((pre_index & (0x01 << i)) && !(cur_index & (0x01 << i)))
+					gt1x_touch_up(i);
+			}
+		} else if (!cur_index) {
+			gt1x_touch_up(0);
+		}
+		pre_index = cur_index;
 	} else if (CHK_BIT(pre_event, BIT_TOUCH)) {
 		if (gt1x_ics_slot_report) {
-			int cycles = pre_index < 3 ? 3 : GTP_MAX_TOUCH;
-
-			for (i = 0; i < cycles; i++) {
+			for (i = 0; i < GTP_MAX_TOUCH; i++) {
 				if (pre_index >> i & 0x01)
 					gt1x_touch_up(i);
 			}

@@ -279,7 +279,10 @@ static void gt1x_ts_work_func(struct work_struct *work)
 #endif
 
 exit_work_func:
-	if (!gt1x_rawdiff_mode && (ret >= 0 || ret == ERROR_VALUE)) {
+	/* 无论本次读取成功还是失败, 都要清 0x814E 状态位。
+	 * 原逻辑在 i2c 读失败(ret<0 且 != ERROR_VALUE)时跳过清零, 此时 IC 的 INT 会一直
+	 * 保持拉低, 而中断注册的是下降沿, 于是再也收不到边沿 -> 触摸永久失效。 */
+	if (!gt1x_rawdiff_mode) {
 		ret = gt1x_i2c_write(GTP_READ_COOR_ADDR, &end_cmd, 1);
 		if (ret < 0) {
 			GTP_ERROR("I2C write end_cmd  error!");

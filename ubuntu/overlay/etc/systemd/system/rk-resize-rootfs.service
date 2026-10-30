@@ -1,0 +1,16 @@
+[Unit]
+Description=Resize the rootfs filesystem to the full partition (first boot)
+ConditionPathExists=!/etc/.rootfs-resized
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/rk-resize-rootfs
+TimeoutStartSec=0
+
+[Install]
+WantedBy=sysinit.target

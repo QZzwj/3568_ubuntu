@@ -1069,7 +1069,14 @@ static void dw_mipi_dsi_disable(struct dw_mipi_dsi *dsi)
 	regmap_write(dsi->regmap, DSI_PWR_UP, RESET);
 	regmap_write(dsi->regmap, DSI_LPCLK_CTRL, 0);
 	regmap_write(dsi->regmap, DSI_EDPI_CMD_SIZE, 0);
-	regmap_write(dsi->regmap, DSI_MODE_CFG, CMD_VIDEO_MODE(COMMAND_MODE));
+	/*
+	 * Video mode panels: keep VIDEO_MODE. Forcing COMMAND_MODE here leaves
+	 * the host sending no video packets (only the HS clock), which shows up
+	 * as flickering vertical lines on the panel.
+	 */
+	if (!(dsi->mode_flags & MIPI_DSI_MODE_VIDEO))
+		regmap_write(dsi->regmap, DSI_MODE_CFG,
+			     CMD_VIDEO_MODE(COMMAND_MODE));
 	regmap_write(dsi->regmap, DSI_PWR_UP, POWER_UP);
 
 	if (dsi->slave)

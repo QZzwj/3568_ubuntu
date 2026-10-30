@@ -19,9 +19,11 @@
 #define _GOODIX_GT1X_CFG_H_
 
 /* CFG for GT5688 */
+#if GTP_DRIVER_SEND_CFG
 static u8 gtp_dat_5688[] = {
 	/* <1080, 1920>*/
 	#include "GT5688_Config_20170713_1080_1920.cfg"
 };
+#endif
 
 #endif /* _GOODIX_GT1X_CFG_H_ */

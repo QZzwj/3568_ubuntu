@@ -84,6 +84,7 @@ assert_size() {
     [ "$PART_SIZE" -gt 0 ] || return 0
 
     IMG_SIZE=$(stat -c "%s" "$IMG")
+    [ -n "$IMG_SIZE" ] || fatal "error: cannot stat $IMG"
 
     if [ $PART_SIZE -lt $(( "$IMG_SIZE" / 1024 )) ]; then
         fatal "error: $IMG's size exceed parameter.txt's limit!"
@@ -102,7 +103,7 @@ link_image() {
             SRC="$FALLBACK"
             message "Fallback to $SRC"
         else
-            message "warning: $SRC not found!"
+            fatal "error: $SRC not found! build it first (e.g. ./build.sh ubuntu / ./build.sh kernel)"
         fi
     fi
 
