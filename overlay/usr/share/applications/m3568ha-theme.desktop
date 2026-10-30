@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Appearance
+Name[zh_CN]=外观主题
+GenericName=Theme
+Comment=深色／浅色／玻璃 一键切换
+Exec=/usr/local/bin/m3568ha-theme menu
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;
+StartupNotify=false

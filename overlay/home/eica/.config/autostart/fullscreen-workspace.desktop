@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Fullscreen Workspace
+Name[zh_CN]=mac 风格虚拟桌面
+Comment=macOS-style: fullscreen windows get their own workspace
+Exec=/usr/bin/python3 /usr/local/bin/fullscreen-workspace.py
+OnlyShowIn=XFCE;
+StartupNotify=false
+Terminal=false
+X-GNOME-Autostart-enabled=true

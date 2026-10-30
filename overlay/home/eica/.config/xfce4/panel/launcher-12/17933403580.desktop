@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=网络
+Name[zh_CN]=网络
+Comment=网络连接
+Exec=nm-connection-editor
+Icon=m3568ha-wifi
+Terminal=false
+Categories=System;Settings;

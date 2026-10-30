@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=m3568ha-light
+Comment=M-3568HA 浅色白蓝主题（登录界面用）
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=m3568ha-light
+MetacityTheme=Arc-Lighter
+IconTheme=Papirus
+CursorTheme=Breeze_Snow
+ButtonLayout=close,minimize,maximize:

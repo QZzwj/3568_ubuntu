@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Launchpad
+Name[zh_CN]=启动台
+GenericName=Applications
+Comment=全屏应用网格（macOS 风格）
+Exec=/usr/local/bin/m3568ha-launchpad
+Icon=m3568ha-logo-blue
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+X-XFCE-Source=file:///usr/share/applications/m3568ha-launchpad.desktop

@@ -1,0 +1,32 @@
+#!/bin/sh
+# 把开机 logo 原始帧 (/usr/share/splash/splash.rgb, 720x1280 XRGB8888)
+# 直接写进 MIPI 面板对应的 framebuffer, 实现"整屏只显示这一张图"。
+IMG=/usr/share/splash/splash.rgb
+[ -f "$IMG" ] || exit 0
+
+# 等 framebuffer 注册好
+for i in $(seq 1 40); do
+	ls /dev/fb* >/dev/null 2>&1 && break
+	sleep 0.5
+done
+
+# 选 virtual_size = 720,1280 的那个 fb (MIPI 面板), 找不到就用 fb0
+FB=""
+for f in /sys/class/graphics/fb*; do
+	[ -e "$f" ] || continue
+	if [ "$(cat "$f/virtual_size" 2>/dev/null)" = "720,1280" ]; then
+		FB="/dev/$(basename "$f")"
+		break
+	fi
+done
+[ -n "$FB" ] || FB=/dev/fb0
+[ -c "$FB" ] || exit 0
+
+for i in 1 2 3 4 5; do
+	if cat "$IMG" > "$FB" 2>/dev/null; then
+		exit 0
+	fi
+	sleep 1
+done
+
+exit 0

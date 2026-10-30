@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""M-3568HA 外观切换小窗（GTK3）。选中后调用 m3568ha-theme 应用。"""
+
+import subprocess
+import sys
+
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Pango  # noqa: E402
+
+BIN = "/usr/local/bin/m3568ha-theme"
+
+THEMES = (
+    ("dark", "深色 Dark", "Arc-Dark + Papirus-Dark／深蓝壁纸", "weather-clear-night"),
+    ("light", "浅色 Light", "Arc + Papirus-Light／亮色壁纸", "weather-clear"),
+    ("glass", "玻璃 Glass", "高透面板 + 大圆角 + 半透窗口", "preferences-desktop-theme"),
+)
+
+
+class ThemeWindow(Gtk.Window):
+    def __init__(self):
+        Gtk.Window.__init__(self, title="M-3568HA 外观")
+        self.set_border_width(14)
+        self.set_default_size(430, -1)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_keep_above(True)
+        try:
+            self.set_icon_name("preferences-desktop-theme")
+        except Exception:
+            pass
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add(box)
+
+        title = Gtk.Label()
+        title.set_markup("<b>桌面外观</b>")
+        title.set_xalign(0)
+        box.pack_start(title, False, False, 0)
+
+        for key, name, sub, icon in THEMES:
+            btn = Gtk.Button()
+            btn.set_relief(Gtk.ReliefStyle.NONE)
+            row = Gtk.Box(spacing=12)
+            img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DIALOG)
+            row.pack_start(img, False, False, 0)
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            l1 = Gtk.Label()
+            l1.set_markup("<b>%s</b>" % name)
+            l1.set_xalign(0)
+            l2 = Gtk.Label(label=sub)
+            l2.set_xalign(0)
+            l2.set_ellipsize(Pango.EllipsizeMode.END)
+            col.pack_start(l1, False, False, 0)
+            col.pack_start(l2, False, False, 0)
+            row.pack_start(col, True, True, 0)
+            btn.add(row)
+            btn.connect("clicked", self.on_pick, key)
+            box.pack_start(btn, False, False, 0)
+
+        close = Gtk.Button(label="关闭")
+        close.connect("clicked", lambda *a: self.destroy())
+        box.pack_start(close, False, False, 0)
+
+    def on_pick(self, _btn, key):
+        try:
+            subprocess.Popen([BIN, key])
+        except Exception as exc:
+            sys.stderr.write("theme apply failed: %s\n" % exc)
+        Gtk.main_quit()
+
+
+win = ThemeWindow()
+win.connect("destroy", Gtk.main_quit)
+win.show_all()
+Gtk.main()

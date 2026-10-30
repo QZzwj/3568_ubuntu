@@ -1,0 +1,91 @@
+#!/bin/sh
+# M-3568HA 桌面外观一键切换
+#   用法: m3568ha-theme dark|light|glass    无参数 = 打开图形菜单
+
+set -u
+
+HOME_DIR="${HOME:-/home/eica}"
+PICOM_CONF="$HOME_DIR/.config/picom.conf"
+BG=/usr/share/backgrounds
+
+# set_prop 通道 属性 类型 值
+set_prop() {
+    _c="$1"; _p="$2"; _t="$3"; _v="$4"
+    xfconf-query -c "$_c" -p "$_p" -s "$_v" >/dev/null 2>&1 && return 0
+    xfconf-query -c "$_c" -p "$_p" -n -t "$_t" -s "$_v" >/dev/null 2>&1 && return 0
+    xfconf-query -c "$_c" -p "$_p" -n -s "$_v" >/dev/null 2>&1
+    return 0
+}
+
+# set_picom 键 值
+set_picom() {
+    [ -f "$PICOM_CONF" ] || return 0
+    sed -i "s|^$1 = .*|$1 = $2;|" "$PICOM_CONF"
+}
+
+set_bg() {
+    for _m in monitorDSI-1 monitor0 monitorHDMI-1 monitorHDMI-A-1 monitorLVDS-1; do
+        for _w in workspace0 workspace1 workspace2 workspace3; do
+            set_prop xfce4-desktop "/backdrop/screen0/$_m/$_w/last-image" string "$1"
+            set_prop xfce4-desktop "/backdrop/screen0/$_m/$_w/image-style" int 5
+        done
+    done
+}
+
+restart_picom() {
+    pkill -x picom >/dev/null 2>&1
+    sleep 1
+    ( picom --config "$PICOM_CONF" >/dev/null 2>&1 & ) >/dev/null 2>&1
+}
+
+finish() {
+    restart_picom
+    xfce4-panel -r >/dev/null 2>&1
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -i preferences-desktop-theme -t 2500 "外观已切换" "$1" >/dev/null 2>&1
+    fi
+}
+
+apply_dark() {
+    set_prop xsettings /Net/ThemeName string Arc-Dark
+    set_prop xsettings /Net/IconThemeName string Papirus-Dark
+    set_prop xfce4-panel /panels/panel-1/background-alpha uint 85
+    set_picom inactive-opacity 0.95
+    set_picom corner-radius 10
+    set_picom shadow-radius 14
+    set_bg "$BG/m3568ha-desk-a.png"
+    finish "深色：Arc-Dark + Papirus-Dark"
+}
+
+apply_light() {
+    set_prop xsettings /Net/ThemeName string Arc
+    set_prop xsettings /Net/IconThemeName string Papirus-Light
+    set_prop xfce4-panel /panels/panel-1/background-alpha uint 96
+    set_picom inactive-opacity 1.0
+    set_picom corner-radius 10
+    set_picom shadow-radius 12
+    set_bg "$BG/m3568ha-desk-light.png"
+    finish "浅色：Arc + Papirus-Light"
+}
+
+apply_glass() {
+    set_prop xsettings /Net/ThemeName string Arc-Dark
+    set_prop xsettings /Net/IconThemeName string Papirus-Dark
+    set_prop xfce4-panel /panels/panel-1/background-alpha uint 52
+    set_picom inactive-opacity 0.86
+    set_picom corner-radius 16
+    set_picom shadow-radius 22
+    set_bg "$BG/m3568ha-desk-a.png"
+    finish "玻璃：高透面板 + 大圆角 + 半透窗口"
+}
+
+case "${1:-menu}" in
+    dark)  apply_dark  ;;
+    light) apply_light ;;
+    glass) apply_glass ;;
+    menu)  exec /usr/local/bin/m3568ha-theme-ui ;;
+    *)
+        echo "用法: m3568ha-theme [dark|light|glass|menu]" >&2
+        exit 2
+        ;;
+esac

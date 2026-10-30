@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Web
+Name[zh_CN]=网页浏览器
+GenericName=Web Browser
+GenericName[zh_CN]=网页浏览器
+Comment=Browse the web
+Comment[zh_CN]=浏览网页
+Exec=epiphany %U
+Icon=/usr/share/icons/Papirus/48x48/apps/epiphany.svg
+Terminal=false
+StartupNotify=true
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;

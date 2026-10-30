@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=控制中心
+Name[zh_CN]=控制中心
+Comment=亮度 / 声音快捷设置
+Exec=/usr/local/bin/m3568ha-quickpanel
+Icon=m3568ha-cc
+Terminal=false
+Categories=System;Settings;

@@ -1,0 +1,33 @@
+[Desktop Entry]
+Name=Thunar File Manager
+Name[zh_CN]=Thunar 文件管理器
+Comment=Browse the filesystem with the file manager
+Comment[zh_CN]=用文件管理器浏览文件系统
+GenericName=File Manager
+GenericName[zh_CN]=文件管理器
+Keywords=file manager;explorer;finder;browser;folders;directory;directories;partitions;drives;network;devices;rename;move;copy;delete;permissions;home;trash;
+Keywords[zh_CN]=file manager;explorer;finder;browser;folders;directory;directories;partitions;drives;network;devices;rename;move;copy;delete;permissions;home;trash;文件管理器;资源管理器;查找;浏览;文件夹;目录;分区;驱动;网络;设备;重命名;移动;复制;删除;权限;主文件夹;回收站;
+Exec=thunar %F
+Icon=/usr/share/icons/Papirus/48x48/apps/org.xfce.thunar.svg
+Terminal=false
+StartupNotify=true
+Type=Application
+Categories=System;Utility;Core;GTK;FileTools;FileManager;
+MimeType=inode/directory;
+Actions=open-home;open-computer;open-trash;
+X-XFCE-Source=file:///usr/share/applications/thunar.desktop
+
+[Desktop Action open-home]
+Name=Home
+Name[zh_CN]=主文件夹
+Exec=thunar %U
+
+[Desktop Action open-computer]
+Name=Computer
+Name[zh_CN]=计算机
+Exec=thunar computer:///
+
+[Desktop Action open-trash]
+Name=Trash
+Name[zh_CN]=回收站
+Exec=thunar trash:///

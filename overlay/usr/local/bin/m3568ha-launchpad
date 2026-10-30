@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""M-3568HA Launchpad v2 —— macOS 风格全屏应用网格（GTK3）。
+
+v2 新增:
+  · 顶部分类标签（全部/网络/开发/影音/图形/办公/系统/其他），带数量
+  · 分页：每页 7x4=28 个图标，左右滑动翻页 + 底部页码点
+  · 鼠标滚轮 / ←→ / 触控翻页；搜索时全库过滤并支持回车启动第一个结果
+退出:  Esc  /  点一个应用自动关闭
+兜底:  GTK3 不可用时退化成 xfce4-appfinder
+"""
+
+import os
+import sys
+
+# 保证从任何环境（面板、终端、ssh）启动时，Gio 都能看到 OnlyShowIn=XFCE 的应用
+os.environ.setdefault("XDG_CURRENT_DESKTOP", "XFCE")
+
+SKIP = ("m3568ha-launchpad.desktop", "m3568ha-theme.desktop", "m3568ha-quickpanel.desktop")
+
+ICON = 74
+COLS = 7
+ROWS = 4
+PER_PAGE = COLS * ROWS
+
+CATS = [
+    ("全部", None),
+    ("网络", ("Network", "WebBrowser", "Email", "Chat", "FileTransfer",
+              "RemoteAccess", "InstantMessaging", "P2P",
+              "~browser", "~网络", "~wifi", "~mail", "~远程")),
+    ("开发", ("Development", "IDE", "TextEditor", "Debugger", "GUIDesigner",
+              "Profiling", "RevisionControl", "Building", "DocTools",
+              "~terminal", "~终端", "~vim", "~gvim", "~htop", "~python",
+              "~git", "~编译", "~editor", "~code")),
+    ("影音", ("AudioVideo", "Audio", "Video", "Player", "Recorder", "Mixer",
+              "Sequencer", "TV", "~音乐", "~播放", "~录", "~vlc", "~声音",
+              "~音量", "~mpv", "~rhythmbox")),
+    ("图形", ("Graphics", "2DGraphics", "VectorGraphics", "RasterGraphics",
+              "Photography", "Scanning", "Viewer",
+              "~image", "~magick", "~截图", "~color", "~色彩", "~picom",
+              "~照片", "~draw", "~paint")),
+    ("办公", ("Office", "Spreadsheet", "WordProcessor", "Presentation",
+              "Calendar", "Database", "Finance", "Calculator",
+              "~office", "~writer", "~calc", "~pdf", "~文档", "~笔记")),
+    ("设置", ("Settings", "DesktopSettings", "HardwareSettings",
+              "Administration", "PackageManager", "~设置", "~setting",
+              "~preference", "~外观", "~显示", "~键盘", "~鼠标", "~桌面",
+              "~会话", "~管理")),
+    ("系统", ("System", "Utility", "FileManager", "Core", "TerminalEmulator",
+              "~thunar", "~文件", "~file", "~任务", "~system")),
+    ("其他", ()),
+]
+
+CSS = b"""
+#m3568ha-launchpad {
+    background-image: linear-gradient(to bottom, #fbfcff, #eef3ff);
+    background-color: #f7f9ff;
+    color: #16233d;
+}
+#m3568ha-launchpad button {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 18px;
+    padding: 8px 6px;
+}
+#m3568ha-launchpad button:hover { background-color: rgba(18, 70, 255, 0.10); }
+#m3568ha-launchpad button:active { background-color: rgba(18, 70, 255, 0.18); }
+#m3568ha-launchpad label { color: #16233d; font-size: 13px; }
+#m3568ha-launchpad entry {
+    border: 1px solid rgba(15, 35, 80, 0.12);
+    border-radius: 18px;
+    padding: 8px 16px;
+    background-image: none;
+    background-color: rgba(255, 255, 255, 0.90);
+    color: #16233d;
+    box-shadow: 0 2px 8px rgba(20, 40, 90, 0.06);
+}
+#m3568ha-launchpad button.chip {
+    background-image: none;
+    background-color: rgba(43, 59, 92, 0.06);
+    border: 1px solid rgba(43, 59, 92, 0.10);
+    border-radius: 14px;
+    padding: 4px 14px;
+    box-shadow: none;
+    color: #2b3b5c;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background-color 170ms ease, color 170ms ease, border-color 170ms ease;
+}
+#m3568ha-launchpad button.chip:hover { background-color: rgba(43, 59, 92, 0.13); }
+#m3568ha-launchpad button.chip:checked {
+    background-color: #1246FF; border-color: #1246FF; color: #ffffff;
+}
+#m3568ha-launchpad label.dot { color: rgba(43, 59, 92, 0.28); font-size: 11px; }
+#m3568ha-launchpad label.dot-active { color: #1246FF; font-size: 11px; }
+#m3568ha-launchpad label.hint { color: #7a8699; font-size: 11px; }
+#m3568ha-launchpad label.empty { color: #7a8699; font-size: 14px; }
+#m3568ha-launchpad button.chip:checked label { color: #ffffff; }
+#m3568ha-launchpad button.chip:checked:hover label { color: #ffffff; }
+#m3568ha-launchpad button.chip:checked { box-shadow: 0 2px 8px rgba(18, 70, 255, 0.28); }
+#m3568ha-launchpad entry:focus {
+    border-color: #1246FF;
+    box-shadow: 0 0 0 2px rgba(18, 70, 255, 0.18);
+}
+#m3568ha-launchpad button:focus { outline: 2px solid #1246FF; outline-offset: -2px; }
+#m3568ha-launchpad button.chip:focus { outline: 2px solid #1246FF; outline-offset: 1px; }
+"""
+
+
+def fallback():
+    try:
+        os.execvp("xfce4-appfinder", ["xfce4-appfinder"])
+    except Exception:
+        sys.exit(1)
+
+
+def main():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("Pango", "1.0")
+        from gi.repository import Gtk, Gdk, Gio, GLib, Pango, GdkPixbuf
+    except Exception:
+        fallback()
+        return
+
+    # ---------- 图标 ----------
+    def icon_for(theme, info):
+        gicon = info.get_icon()
+        if gicon is not None:
+            for size, flags in ((ICON, Gtk.IconLookupFlags.FORCE_SIZE),
+                                (96, Gtk.IconLookupFlags.GENERIC_FALLBACK),
+                                (48, Gtk.IconLookupFlags.GENERIC_FALLBACK)):
+                try:
+                    ptr = theme.lookup_by_gicon(gicon, size, flags)
+                    if ptr is None:
+                        continue
+                    pb = ptr.load_icon()
+                    if pb is None:
+                        continue
+                    w, h = pb.get_width(), pb.get_height()
+                    if size == ICON and w < ICON * 0.6:
+                        continue
+                    if w != ICON or h != ICON:
+                        pb = pb.scale_simple(ICON, ICON, GdkPixbuf.InterpType.BILINEAR)
+                    return pb
+                except Exception:
+                    continue
+        for name in ("application-x-executable", "application-default-icon"):
+            try:
+                return theme.load_icon(name, ICON, 0)
+            except Exception:
+                continue
+        return None
+
+    # ---------- 应用清单 ----------
+    def cats_of(info):
+        out = set()
+        try:
+            getter = getattr(info, "get_categories", None)
+            if getter is not None:
+                raw = getter() or ""
+                for c in raw.replace(";", " ").split():
+                    out.add(c)
+            if isinstance(info, Gio.DesktopAppInfo):
+                nm = (info.get_name() or "") + " " + (info.get_executable() or "")
+                out.add("_n:" + nm.lower())
+        except Exception:
+            pass
+        return out
+
+    def load_all():
+        apps, seen = [], set()
+        theme = Gtk.IconTheme.get_default()
+        for info in Gio.AppInfo.get_all():
+            try:
+                if not info.should_show():
+                    continue
+                fid = info.get_id() or ""
+                if os.path.basename(fid) in SKIP:
+                    continue
+                name = info.get_display_name() or info.get_name() or info.get_executable()
+                if not name:
+                    continue
+                key = (name, info.get_executable() or "")
+                if key in seen:
+                    continue
+                pb = icon_for(theme, info)
+                if pb is None:
+                    continue
+                seen.add(key)
+                blob = " ".join([
+                    (name or "").lower(),
+                    (info.get_name() or "").lower(),
+                    (info.get_display_name() or "").lower(),
+                    (info.get_executable() or "").lower(),
+                ])
+                try:
+                    gname = getattr(info, "get_generic_name", lambda: "")() or ""
+                except Exception:
+                    gname = ""
+                blob += " " + gname.lower()
+                apps.append({"name": name, "pb": pb, "info": info,
+                             "cats": cats_of(info), "blob": blob})
+            except Exception:
+                continue
+        apps.sort(key=lambda a: a["name"].lower())
+        return apps
+
+    def in_cat(app, keys):
+        if keys is None:
+            return True
+        if not keys:
+            return False
+        for k in keys:
+            if k.startswith("~"):
+                if k[1:] in app.get("blob", ""):
+                    return True
+            elif k in app["cats"]:
+                return True
+        return False
+
+    def cat_of(app):
+        for text, keys in CATS[1:]:
+            if keys and in_cat(app, keys):
+                return text
+        return "其他"
+
+    ALL = load_all()
+    for _a in ALL:
+        _a["cat1"] = cat_of(_a)
+    if not ALL:
+        fallback()
+        return
+
+    # ---------- 窗口 ----------
+    win = Gtk.Window()
+    win.set_name("m3568ha-launchpad")
+    win.set_title("Launchpad")
+    win.set_decorated(False)
+    win.set_resizable(True)
+    win.set_skip_taskbar_hint(True)
+    win.set_skip_pager_hint(True)
+    win.set_keep_above(True)
+    win.set_position(Gtk.WindowPosition.CENTER_ALWAYS)
+
+    screen = Gdk.Screen.get_default()
+    if screen is not None and screen.is_composited():
+        vis = screen.get_rgba_visual()
+        if vis is not None:
+            win.set_visual(vis)
+    win.set_app_paintable(False)
+
+    if screen is not None:
+        win.set_default_size(screen.get_width(), screen.get_height())
+
+    prov = Gtk.CssProvider()
+    try:
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            screen, prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+    except Exception:
+        pass
+
+    outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    outer.set_border_width(18)
+    win.add(outer)
+
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("搜索应用…")
+    search.set_halign(Gtk.Align.CENTER)
+    search.set_width_chars(34)
+    outer.pack_start(search, False, False, 0)
+
+    chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+    chips.set_halign(Gtk.Align.CENTER)
+    outer.pack_start(chips, False, False, 0)
+
+    stack = Gtk.Stack()
+    stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+    stack.set_transition_duration(210)
+    stack.set_vexpand(True)
+    outer.pack_start(stack, True, True, 0)
+
+    bottom = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    bottom.set_halign(Gtk.Align.CENTER)
+    outer.pack_start(bottom, False, False, 0)
+
+    dots = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+    dots.set_halign(Gtk.Align.CENTER)
+    bottom.pack_start(dots, False, False, 0)
+
+    hint = Gtk.Label(label="")
+    hint.get_style_context().add_class("hint")
+    bottom.pack_start(hint, False, False, 0)
+
+    # ---------- 启动 ----------
+    def on_click(_btn, info):
+        win.hide()
+
+        def go():
+            try:
+                ctx = Gdk.Display.get_default().get_app_launch_context()
+                info.launch([], ctx)
+            except Exception as exc:
+                sys.stderr.write("launch failed: %s\n" % exc)
+            return False
+
+        GLib.timeout_add(120, go)
+        GLib.timeout_add(400, lambda: (Gtk.main_quit(), False)[1])
+
+    def tile(app):
+        btn = Gtk.Button()
+        btn.set_relief(Gtk.ReliefStyle.NONE)
+        btn.set_tooltip_text(app["name"])
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        img = Gtk.Image.new_from_pixbuf(app["pb"])
+        lbl = Gtk.Label(label=app["name"])
+        lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        lbl.set_max_width_chars(13)
+        lbl.set_justify(Gtk.Justification.CENTER)
+        lbl.set_halign(Gtk.Align.CENTER)
+        box.pack_start(img, False, False, 0)
+        box.pack_start(lbl, False, False, 0)
+        btn.add(box)
+        btn.connect("clicked", on_click, app["info"])
+        return btn
+
+    page_names = []
+    page_apps = {}
+
+    def clear_stack():
+        for child in stack.get_children():
+            stack.remove(child)
+        for child in dots.get_children():
+            dots.remove(child)
+        del page_names[:]
+
+    def add_page(name, apps):
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        holder.set_valign(Gtk.Align.CENTER)
+        if apps:
+            grid = Gtk.Grid()
+            grid.set_row_spacing(2)
+            grid.set_column_spacing(2)
+            grid.set_halign(Gtk.Align.CENTER)
+            grid.set_valign(Gtk.Align.CENTER)
+            for n, app in enumerate(apps):
+                grid.attach(tile(app), n % COLS, n // COLS, 1, 1)
+            holder.pack_start(grid, False, False, 0)
+        else:
+            lb = Gtk.Label(label="没有匹配的应用")
+            lb.get_style_context().add_class("empty")
+            holder.pack_start(lb, True, True, 0)
+        stack.add_named(holder, name)
+        page_names.append(name)
+        page_apps[name] = apps
+
+    def rebuild_dots():
+        for child in dots.get_children():
+            dots.remove(child)
+        total = len(page_names)
+        if total <= 1:
+            dots.hide()
+            return
+        dots.show()
+        cur = page_names.index(stack.get_visible_child_name()) if stack.get_visible_child_name() in page_names else 0
+        for i in range(total):
+            lb = Gtk.Label(label="●" if i == cur else "○")
+            lb.get_style_context().add_class("dot-active" if i == cur else "dot")
+            dots.pack_start(lb, False, False, 0)
+        dots.show_all()
+
+    # ---------- 构建页面 ----------
+    state = {"cat": "全部"}
+
+    def build_all():
+        clear_stack()
+        keys = dict(CATS)[state["cat"]]
+        if state["cat"] == "全部":
+            items = list(ALL)
+        else:
+            items = [a for a in ALL if a["cat1"] == state["cat"]]
+        pages = [items[i:i + PER_PAGE] for i in range(0, len(items), PER_PAGE)] or [[]]
+        for i, chunk in enumerate(pages):
+            add_page("p%d" % i, chunk)
+        stack.show_all()
+        stack.set_visible_child_name(page_names[0])
+        rebuild_dots()
+        hint.set_text("%d 个应用 · %d 页" % (len(items), len(pages)))
+
+    def build_search(q):
+        q = q.strip().lower()
+        items = [a for a in ALL if q in a["name"].lower()]
+        clear_stack()
+        pages = [items[i:i + PER_PAGE] for i in range(0, len(items), PER_PAGE)] or [[]]
+        for i, chunk in enumerate(pages):
+            add_page("s%d" % i, chunk)
+        stack.show_all()
+        stack.set_visible_child_name(page_names[0])
+        rebuild_dots()
+        hint.set_text("%d 个结果" % len(items))
+        return items
+
+    # ---------- 分类标签 ----------
+    cat_btns = {}
+
+    def refresh_counts():
+        for text, keys in CATS:
+            if text == "全部":
+                n = len(ALL)
+            else:
+                n = len([a for a in ALL if a["cat1"] == text])
+            btn = cat_btns[text]
+            btn.set_label("%s %d" % (text, n))
+            if text == "全部" or n > 0:
+                btn.show()
+            else:
+                btn.hide()
+
+    def on_cat(w, text):
+        if not w.get_active():
+            w.set_active(True)
+            return
+        state["cat"] = text
+        for k, o in cat_btns.items():
+            if o is not w:
+                o.handler_block_by_func(on_cat)
+                o.set_active(False)
+                o.handler_unblock_by_func(on_cat)
+        search.set_text("")
+        build_all()
+
+    for text, _keys in CATS:
+        b = Gtk.ToggleButton(label=text)
+        b.get_style_context().add_class("chip")
+        b.set_relief(Gtk.ReliefStyle.NONE)
+        cat_btns[text] = b
+        chips.pack_start(b, False, False, 0)
+        b.connect("toggled", on_cat, text)
+    cat_btns["全部"].set_active(True)
+
+    # ---------- 搜索 ----------
+    pend = {"id": 0}
+
+    def do_search():
+        pend["id"] = 0
+        q = search.get_text()
+        if q.strip():
+            build_search(q)
+        else:
+            build_all()
+        return False
+
+    def on_search(_entry):
+        if pend["id"]:
+            GLib.source_remove(pend["id"])
+        pend["id"] = GLib.timeout_add(120, do_search)
+
+    search.connect("search-changed", on_search)
+
+    # ---------- 翻页 ----------
+    def shift(step):
+        if not page_names:
+            return
+        cur = stack.get_visible_child_name()
+        if cur not in page_names:
+            return
+        i = page_names.index(cur) + step
+        if 0 <= i < len(page_names):
+            stack.set_transition_type(
+                Gtk.StackTransitionType.SLIDE_LEFT if step > 0 else Gtk.StackTransitionType.SLIDE_RIGHT
+            )
+            stack.set_visible_child_name(page_names[i])
+
+    def on_scroll(_w, ev):
+        if ev.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT):
+            shift(1)
+        elif ev.direction in (Gdk.ScrollDirection.UP, Gdk.ScrollDirection.LEFT):
+            shift(-1)
+        return True
+
+    stack.add_events(Gdk.EventMask.SCROLL_MASK)
+    stack.connect("scroll-event", on_scroll)
+
+    def on_visible(*_a):
+        rebuild_dots()
+
+    stack.connect("notify::visible-child-name", on_visible)
+
+    def on_key(_w, ev):
+        if ev.keyval == Gdk.KEY_Escape:
+            Gtk.main_quit()
+            return True
+        if ev.keyval in (Gdk.KEY_Right, Gdk.KEY_Page_Down):
+            shift(1)
+            return True
+        if ev.keyval in (Gdk.KEY_Left, Gdk.KEY_Page_Up):
+            shift(-1)
+            return True
+        if ev.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            cur = stack.get_visible_child_name()
+            apps = page_apps.get(cur) or []
+            if apps:
+                on_click(None, apps[0]["info"])
+                return True
+        return False
+
+    win.connect("key-press-event", on_key)
+    win.connect("destroy", lambda *a: Gtk.main_quit())
+
+    build_all()
+    win.show_all()
+    refresh_counts()
+    win.fullscreen()
+    search.grab_focus()
+    Gtk.main()
+
+
+try:
+    main()
+except KeyboardInterrupt:
+    pass
+except Exception as exc:  # noqa: BLE001
+    sys.stderr.write("launchpad error: %s\n" % exc)
+    fallback()

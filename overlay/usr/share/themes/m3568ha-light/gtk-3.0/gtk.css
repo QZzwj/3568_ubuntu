@@ -1,0 +1,104 @@
+/* M-3568HA 浅色主题：Arc-Lighter 基础 + 登录界面（lightdm-gtk-greeter）白蓝定制 */
+@import url("resource:///org/gnome/arc-theme/gtk-main-lighter.css");
+
+/* ================= 登录界面 ================= */
+#login_window,
+#power_window {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    color: #16233d;
+    text-shadow: none;
+}
+
+/* 顶部面板：白色半透明胶囊 */
+#panel_window {
+    background-color: rgba(255, 255, 255, 0.88);
+    background-image: none;
+    border: none;
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 2px 12px rgba(18, 42, 96, 0.10);
+    color: #16233d;
+}
+#panel_window label,
+#panel_window .menubar.item,
+#panel_window menubar {
+    color: #16233d;
+    background-color: transparent;
+    text-shadow: none;
+}
+#hostname {
+    color: #1246FF;
+    font-weight: 700;
+}
+#clock,
+#live-clock {
+    color: #16233d;
+    font-weight: 600;
+}
+
+/* 中央登录卡片 */
+#content_frame {
+    background-color: rgba(255, 255, 255, 0.94);
+    background-image: none;
+    border: 1px solid rgba(18, 70, 255, 0.16);
+    border-radius: 20px;
+    box-shadow: 0 10px 34px rgba(16, 38, 90, 0.16);
+    padding: 20px 24px;
+}
+
+/* 输入框 */
+#login_window entry {
+    background-image: none;
+    background-color: #ffffff;
+    border: 1px solid rgba(15, 35, 80, 0.14);
+    border-radius: 12px;
+    padding: 9px 14px;
+    color: #16233d;
+    box-shadow: none;
+}
+#login_window entry:focus {
+    border-color: #1246FF;
+    box-shadow: 0 0 0 2px rgba(18, 70, 255, 0.18);
+}
+
+/* 按钮：主色蓝 */
+#login_window button,
+#power_window button {
+    background-image: none;
+    background-color: #1246FF;
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    padding: 6px 14px;
+    text-shadow: none;
+    box-shadow: 0 3px 10px rgba(18, 70, 255, 0.22);
+}
+#login_window button:hover,
+#power_window button:hover {
+    background-color: #2f5cff;
+}
+#login_window button:active,
+#power_window button:active {
+    background-color: #0d38d6;
+}
+#login_window button:disabled,
+#power_window button:disabled {
+    background-color: rgba(18, 70, 255, 0.35);
+    color: rgba(255, 255, 255, 0.85);
+}
+
+/* 会话选择下拉 */
+#login_window combobox button {
+    background-color: #ffffff;
+    color: #16233d;
+    border: 1px solid rgba(15, 35, 80, 0.14);
+    border-radius: 10px;
+}
+
+/* 提示/错误文字 */
+#login_window label.dim-label,
+#login_window .login-user_hint {
+    color: #5a6a8c;
+}

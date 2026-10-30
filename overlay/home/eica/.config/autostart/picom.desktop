@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Picom
+Name[zh_CN]=Picom 窗口特效
+Comment=Window compositor: fade, rounded corners, shadows
+Exec=/usr/local/bin/picom-start.sh
+Icon=picom
+Terminal=false
+OnlyShowIn=XFCE;
+NoDisplay=true
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,29 @@
+#!/bin/sh
+# M-3568HA 受限 root 助手：只允许改背光亮度与 RK809 输出通路
+# 由 /etc/sudoers.d/50-m3568ha-ctl 授予 eica NOPASSWD 权限
+BL=/sys/class/backlight/backlight/brightness
+MAX=/sys/class/backlight/backlight/max_brightness
+case "$1" in
+  bright)
+    v="$2"
+    case "$v" in ''|*[!0-9]*) echo "bad value" >&2; exit 2;; esac
+    m=$(cat "$MAX" 2>/dev/null || echo 255)
+    [ "$v" -gt "$m" ] && v="$m"
+    echo "$v" > "$BL" && echo "brightness=$v"
+    ;;
+  path)
+    p="$2"
+    case "$p" in
+      OFF|SPK|HP|SPK_HP|HP_NO_MIC) ;;
+      *) echo "bad path" >&2; exit 2;;
+    esac
+    amixer -c 0 -q sset 'Playback Path' "$p" >/dev/null 2>&1 && echo "path=$p"
+    ;;
+  get)
+    echo "brightness=$(cat $BL 2>/dev/null)"
+    echo "max=$(cat $MAX 2>/dev/null)"
+    amixer -c 0 sget 'Playback Path' 2>/dev/null | tail -1
+    ;;
+  *)
+    echo "usage: m3568ha-ctl {bright N|path MODE|get}" >&2; exit 2;;
+esac

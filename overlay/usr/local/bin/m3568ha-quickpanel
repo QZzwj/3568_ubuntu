@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""M-3568HA 控制中心 —— 顶栏滑杆图标弹出的快捷面板（GTK3）。
+
+内容:
+  亮度   0..255 背光滑块（写入 /sys/class/backlight/backlight/brightness，经 sudo 助手）
+  声音   RK809 输出通路 OFF / 扬声器 / 耳机（内核无软件音量控制，只有通路枚举）
+
+退出:  Esc  /  点窗口外  /  右上角 ×
+"""
+
+import os
+import subprocess
+import sys
+
+CTL = "/usr/local/bin/m3568ha-ctl"
+MAXB = "/sys/class/backlight/backlight/max_brightness"
+
+CSS = b"""
+#m3568ha-cc {
+    background-color: #fafbff;
+    border: none;
+    border-radius: 20px;
+}
+#m3568ha-cc label { color: #16233d; }
+#m3568ha-cc .cc-title { font-size: 14px; font-weight: 700; color: #16233d; }
+#m3568ha-cc .cc-sub   { font-size: 11px; font-weight: 500; color: #5b6a86; }
+#m3568ha-cc .cc-val   { font-size: 12px; font-weight: 600; color: #2b3b5c; }
+#m3568ha-cc .cc-ico   { font-size: 16px; color: #2b3b5c; }
+#m3568ha-cc .cc-hint  { font-size: 10px; color: #7a8699; }
+#m3568ha-cc button.cc-close {
+    background-image: none; background-color: rgba(43,59,92,0.07);
+    border: none; box-shadow: none; border-radius: 12px;
+    color: #2b3b5c; font-size: 13px; font-weight: 700; padding: 0 8px;
+}
+#m3568ha-cc button.cc-close:hover { background-color: rgba(43,59,92,0.16); }
+#m3568ha-cc button.chip {
+    background-image: none; background-color: rgba(43,59,92,0.07);
+    border: 1px solid rgba(43,59,92,0.12); box-shadow: none;
+    border-radius: 14px; padding: 5px 14px;
+    color: #16233d; font-size: 12px; font-weight: 500;
+}
+#m3568ha-cc button.chip:hover { background-color: rgba(43,59,92,0.14); }
+#m3568ha-cc button.chip:checked {
+    background-color: #1246FF; border-color: #1246FF; color: #ffffff;
+}
+#m3568ha-cc button.chip:checked label { color: #ffffff; }
+#m3568ha-cc button.chip:checked:hover label { color: #ffffff; }
+#m3568ha-cc button.chip:checked { box-shadow: 0 2px 8px rgba(18, 70, 255, 0.28); }
+#m3568ha-cc scale trough {
+    background-color: rgba(43,59,92,0.15); border-radius: 6px; min-height: 8px;
+}
+#m3568ha-cc scale highlight {
+    background-image: none; background-color: #1246FF; border-radius: 6px;
+}
+#m3568ha-cc scale slider {
+    background-image: none; background-color: #ffffff;
+    border: 2px solid #1246FF; border-radius: 50%;
+    min-width: 15px; min-height: 15px; margin: -5px;
+}
+#m3568ha-cc scale { padding: 0; }
+#m3568ha-cc button:focus, #m3568ha-cc scale:focus { outline: 2px solid #1246FF; outline-offset: -2px; }
+#m3568ha-cc button.chip:focus { outline: 2px solid #1246FF; outline-offset: 1px; }
+#m3568ha-cc scale trough highlight { background-color: #1246FF; }
+"""
+
+
+def ctl(*args):
+    try:
+        out = subprocess.run(
+            ["sudo", "-n", CTL] + [str(a) for a in args],
+            capture_output=True, text=True, timeout=5,
+        )
+        return out.stdout.strip()
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write("ctl failed: %s\n" % exc)
+        return ""
+
+
+def main():
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gtk, Gdk, GLib
+    except Exception:
+        sys.exit(0)
+
+    try:
+        maxb = int(open(MAXB).read().strip())
+    except Exception:
+        maxb = 255
+
+    state = {"bright": None, "path": "OFF"}
+
+    raw = ctl("get")
+    for line in raw.splitlines():
+        line = line.strip()
+        if line.startswith("brightness="):
+            try:
+                state["bright"] = int(line.split("=", 1)[1])
+            except Exception:
+                pass
+        elif "Item0:" in line:
+            state["path"] = line.split("'")[1] if "'" in line else "OFF"
+
+    # ---------- 窗口 ----------
+    win = Gtk.Window()
+    win.set_name("m3568ha-cc")
+    win.set_decorated(False)
+    win.set_resizable(False)
+    win.set_skip_taskbar_hint(True)
+    win.set_skip_pager_hint(True)
+    win.set_keep_above(True)
+    win.set_position(Gtk.WindowPosition.CENTER)
+    win.set_default_size(340, -1)
+    win.set_border_width(0)
+
+    prov = Gtk.CssProvider()
+    try:
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+    except Exception:
+        pass
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+    box.set_border_width(18)
+    win.add(box)
+
+    # 标题行
+    head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    ttl = Gtk.Label(label="控制中心")
+    ttl.get_style_context().add_class("cc-title")
+    ttl.set_halign(Gtk.Align.START)
+    head.pack_start(ttl, True, True, 0)
+    btn_close = Gtk.Button()
+    _cimg = Gtk.Image.new_from_icon_name("m3568ha-close", Gtk.IconSize.DND)
+    _cimg.set_pixel_size(13)
+    btn_close.set_image(_cimg)
+    btn_close.get_style_context().add_class("cc-close")
+    btn_close.set_relief(Gtk.ReliefStyle.NONE)
+    btn_close.connect("clicked", lambda *a: Gtk.main_quit())
+    head.pack_end(btn_close, False, False, 0)
+    box.pack_start(head, False, False, 0)
+
+    # 亮度
+    brow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    ico = Gtk.Image.new_from_icon_name("m3568ha-brightness", Gtk.IconSize.DND)
+    ico.set_pixel_size(20)
+    ico.get_style_context().add_class("cc-ico")
+    lbl = Gtk.Label(label="亮度")
+    lbl.set_halign(Gtk.Align.START)
+    bval = Gtk.Label(label="--")
+    bval.get_style_context().add_class("cc-val")
+    brow.pack_start(ico, False, False, 0)
+    brow.pack_start(lbl, False, False, 0)
+    brow.pack_end(bval, False, False, 0)
+    box.pack_start(brow, False, False, 0)
+
+    scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, maxb, 1)
+    scale.set_draw_value(False)
+    scale.set_value(state["bright"] if state["bright"] is not None else maxb)
+    scale.set_hexpand(True)
+    box.pack_start(scale, False, False, 0)
+
+    pend = {"id": 0}
+
+    def push_bright(value):
+        v = int(round(value))
+        bval.set_text("%d%%" % (round(100.0 * v / maxb) if maxb else 0))
+        if pend["id"]:
+            GLib.source_remove(pend["id"])
+
+        def go():
+            pend["id"] = 0
+            ctl("bright", v)
+            return False
+
+        pend["id"] = GLib.timeout_add(45, go)
+
+    bval.set_text("%d%%" % (round(100.0 * (state["bright"] or maxb) / maxb) if maxb else 0))
+    scale.connect("value-changed", lambda s: push_bright(s.get_value()))
+
+    # 声音
+    box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 2)
+    srow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    sico = Gtk.Image.new_from_icon_name("m3568ha-audio", Gtk.IconSize.DND)
+    sico.set_pixel_size(20)
+    sico.get_style_context().add_class("cc-ico")
+    slbl = Gtk.Label(label="声音输出")
+    slbl.set_halign(Gtk.Align.START)
+    srow.pack_start(sico, False, False, 0)
+    srow.pack_start(slbl, False, False, 0)
+    box.pack_start(srow, False, False, 0)
+
+    chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    chips.set_halign(Gtk.Align.START)
+    group = {}
+
+    def set_path(mode):
+        ctl("path", mode)
+        state["path"] = mode
+
+    for text, mode in (("关闭", "OFF"), ("扬声器", "SPK"), ("耳机", "HP")):
+        b = Gtk.ToggleButton(label=text)
+        b.get_style_context().add_class("chip")
+        b.set_relief(Gtk.ReliefStyle.NONE)
+        group[mode] = b
+        chips.pack_start(b, False, False, 0)
+
+        def on_toggle(w, m=mode):
+            if not w.get_active():
+                return
+            for _k, o in group.items():
+                if o is not w and o.get_active():
+                    o.set_active(False)
+            set_path(m)
+
+        b.connect("toggled", on_toggle)
+
+    cur = group.get(state["path"])
+    if cur is not None:
+        cur.set_active(True)
+    else:
+        group["OFF"].set_active(True)
+    box.pack_start(chips, False, False, 0)
+
+    hint = Gtk.Label(label="亮度直控背光 PWM；本机内核无软件音量，只能切换 RK809 输出通路。")
+    hint.get_style_context().add_class("cc-hint")
+    hint.set_line_wrap(True)
+    hint.set_max_width_chars(34)
+    hint.set_halign(Gtk.Align.START)
+    box.pack_start(hint, False, False, 0)
+
+    def on_key(_w, ev):
+        if ev.keyval == Gdk.KEY_Escape:
+            Gtk.main_quit()
+            return True
+        return False
+
+    win.connect("key-press-event", on_key)
+    win.connect("destroy", lambda *a: Gtk.main_quit())
+    win.connect("focus-out-event", lambda *a: (Gtk.main_quit(), False)[1])
+
+    win.show_all()
+    win.present()
+    Gtk.main()
+
+
+try:
+    main()
+except KeyboardInterrupt:
+    pass
+except Exception as exc:  # noqa: BLE001
+    sys.stderr.write("quickpanel error: %s\n" % exc)
