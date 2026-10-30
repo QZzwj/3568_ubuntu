@@ -22,7 +22,7 @@
 
 ## 这是什么
 
-M-3568HA / SC-3568HA（RK3568）出厂通常跑 Android 或裸 Ubuntu Base，桌面要么没有、要么是默认 XFCE 的灰蓝丑样子。
+M-3568HA / SC-3568HA（RK3568）出厂通常跑Openharmony，对应的Ubuntu没有适配，而且实验室的板子多，对应的需求也多
 本仓库是**这套板子上的桌面层成品**：脚本、GTK 样式、图标、壁纸、XFCE 面板配置、MIPI 屏参和触屏校准矩阵，全部按根路径镜像在 `overlay/` 里，
 用 `scripts/apply-overlay.sh` 一次铺到板子上。
 
